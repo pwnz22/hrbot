@@ -107,10 +107,17 @@ def setup_handlers(dp: Dispatcher):
             parser = GmailParser()
 
             # Парсим новые письма
-            parsed_count = await parser.parse_new_emails()
+            result = await parser.parse_new_emails()
 
-            if parsed_count > 0:
-                await message.answer(f"✅ Парсинг завершен!\nОбработано новых откликов: <b>{parsed_count}</b>", parse_mode="HTML")
+            if result["parsed_count"] > 0:
+                text = f"✅ Парсинг завершен!\nОбработано новых откликов: <b>{result['parsed_count']}</b>"
+
+                if result["new_vacancies"]:
+                    text += f"\n\n<b>Новые вакансии ({len(result['new_vacancies'])}):</b>"
+                    for vacancy in result["new_vacancies"]:
+                        text += f"\n• {vacancy}"
+
+                await message.answer(text, parse_mode="HTML")
             else:
                 await message.answer("📭 Новых писем не найдено")
 

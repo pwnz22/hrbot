@@ -72,6 +72,8 @@ class GmailParser:
 
     async def parse_new_emails(self):
         parsed_count = 0
+        new_vacancies = []
+
         try:
             # Фильтруем только непрочитанные письма от SomonTj с нужным заголовком
             query = 'from:noreply@somon.tj subject:"Отклик на вакансию" is:unread'
@@ -82,9 +84,16 @@ class GmailParser:
             messages = results.get('messages', [])
 
             for message in messages:
-                success = await self.process_message(message['id'])
-                if success:
+                result = await self.process_message(message['id'])
+                if result and result.get('success'):
                     parsed_count += 1
+
+                    # Добавляем новую вакансию в список если она была создана
+                    if result.get('new_vacancy'):
+                        vacancy_title = result.get('vacancy_title')
+                        if vacancy_title and vacancy_title not in new_vacancies:
+                            new_vacancies.append(vacancy_title)
+
                     # Отмечаем письмо как прочитанное
                     self.service.users().messages().modify(
                         userId='me',
@@ -95,10 +104,23 @@ class GmailParser:
         except Exception as e:
             print(f"Ошибка парсинга писем: {e}")
 
-        return parsed_count
+        return {
+            "parsed_count": parsed_count,
+            "new_vacancies": new_vacancies
+        }
 
     async def process_message(self, message_id):
         try:
+            # Сначала проверяем, не обработано ли уже это письмо
+            async with AsyncSessionLocal() as session:
+                from sqlalchemy import select
+                existing_check = await session.execute(
+                    select(Application).where(Application.gmail_message_id == message_id)
+                )
+                if existing_check.scalar_one_or_none():
+                    print(f"Письмо {message_id} уже обработано, пропускаем")
+                    return {"success": False}
+
             message = self.service.users().messages().get(
                 userId='me', id=message_id, format='full'
             ).execute()
@@ -110,12 +132,12 @@ class GmailParser:
             # Проверяем что письмо от SomonTj
             if 'noreply@somon.tj' not in from_email:
                 print(f"Пропускаем письмо не от SomonTj: {from_email}")
-                return False
+                return {"success": False}
 
             # Проверяем что заголовок начинается с "Отклик на вакансию"
             if not subject.startswith('Отклик на вакансию'):
                 print(f"Пропускаем письмо без нужной темы: {subject}")
-                return False
+                return {"success": False}
 
             print(f"Обрабатываем письмо от SomonTj: {subject}")
 
@@ -215,7 +237,7 @@ class GmailParser:
 
             # Находим или создаем вакансию
             async with AsyncSessionLocal() as session:
-                vacancy = await self.get_or_create_vacancy(session, vacancy_title)
+                vacancy, is_new_vacancy = await self.get_or_create_vacancy(session, vacancy_title)
 
                 application = Application(
                     name=name,
@@ -234,21 +256,25 @@ class GmailParser:
                 try:
                     await session.commit()
                     print(f"✅ УСПЕШНО СОХРАНЕН отклик: {name} - {email} для вакансии: {vacancy_title}")
-                    return True
+                    return {
+                        "success": True,
+                        "new_vacancy": is_new_vacancy,
+                        "vacancy_title": vacancy_title
+                    }
 
                 except IntegrityError as e:
                     await session.rollback()
                     print(f"❌ Отклик уже существует: {message_id} - {e}")
-                    return False
+                    return {"success": False}
                 except Exception as e:
                     await session.rollback()
                     print(f"❌ ОШИБКА сохранения: {e}")
                     print(f"Данные: name={name}, email={email}, vacancy_id={vacancy.id if vacancy else None}")
-                    return False
+                    return {"success": False}
 
         except Exception as e:
             print(f"Ошибка обработки сообщения {message_id}: {e}")
-            return False
+            return {"success": False}
 
     def extract_body(self, payload):
         body = ""
@@ -444,16 +470,18 @@ class GmailParser:
             result = await session.execute(stmt)
             vacancy = result.scalar_one_or_none()
 
+            is_new_vacancy = False
             if not vacancy:
                 vacancy = Vacancy(title=title, description=f"Вакансия с сайта SomonTj: {title}")
                 session.add(vacancy)
                 await session.flush()  # Получаем ID без коммита
                 print(f"Создана новая вакансия: {title}")
+                is_new_vacancy = True
 
-            return vacancy
+            return vacancy, is_new_vacancy
         except Exception as e:
             print(f"Ошибка при работе с вакансией: {e}")
-            return None
+            return None, False
 
     def extract_name(self, from_email, body):
         name_match = re.search(r'([А-Яа-я]+\s+[А-Яа-я]+)', body)
