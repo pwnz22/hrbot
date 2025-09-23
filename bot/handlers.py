@@ -53,7 +53,8 @@ def setup_handlers(dp: Dispatcher):
                            "/stats - Статистика по откликам\n"
                            "/recent - Последние отклики\n"
                            "/unprocessed - Все необработанные отклики\n"
-                           "/parse - Парсить новые письма")
+                           "/parse - Парсить новые письма\n"
+                           "/export - Экспорт откликов в Excel")
 
     @dp.message(Command("stats"))
     async def stats_handler(message: Message) -> None:
@@ -669,3 +670,118 @@ def setup_handlers(dp: Dispatcher):
                 text += "Выберите отклик для просмотра и обработки:"
 
                 await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.message(Command("export"))
+    async def export_handler(message: Message) -> None:
+        status_msg = await message.answer("📊 Создаю Excel файл с откликами...")
+
+        try:
+            async with AsyncSessionLocal() as session:
+                from sqlalchemy.orm import selectinload
+
+                # Получаем все не удаленные отклики с вакансиями
+                stmt = select(Application).options(selectinload(Application.vacancy)).where(
+                    Application.deleted_at.is_(None)
+                ).order_by(desc(Application.created_at))
+                result = await session.execute(stmt)
+                applications = result.scalars().all()
+
+                if not applications:
+                    await status_msg.edit_text("📭 Нет откликов для экспорта")
+                    import asyncio
+                    asyncio.create_task(delete_message_after_delay(status_msg, 2))
+                    asyncio.create_task(delete_message_after_delay(message, 2))
+                    return
+
+                # Создаем Excel файл
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment
+                from datetime import datetime
+
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Отклики на вакансии"
+
+                # Заголовки
+                headers = [
+                    "ID", "Имя", "Email", "Телефон", "Вакансия",
+                    "Статус", "Дата отклика", "Сообщение", "Файл"
+                ]
+
+                # Стиль заголовков
+                header_font = Font(bold=True, color="FFFFFF")
+                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=1, column=col, value=header)
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = Alignment(horizontal="center")
+
+                # Данные
+                for row, app in enumerate(applications, 2):
+                    ws.cell(row=row, column=1, value=app.id)
+                    ws.cell(row=row, column=2, value=app.name or "")
+                    ws.cell(row=row, column=3, value=app.email or "")
+                    ws.cell(row=row, column=4, value=app.phone or "")
+                    ws.cell(row=row, column=5, value=app.vacancy.title if app.vacancy else "")
+                    ws.cell(row=row, column=6, value="Обработан" if app.is_processed else "Не обработан")
+                    ws.cell(row=row, column=7, value=app.created_at.strftime('%d.%m.%Y %H:%M') if app.created_at else "")
+
+                    # Колонка "Сообщение" с переносом текста
+                    message_cell = ws.cell(row=row, column=8, value=app.applicant_message or "")
+                    message_cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+                    ws.cell(row=row, column=9, value=app.attachment_filename or "")
+
+                # Автоширина колонок
+                for column in ws.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    ws.column_dimensions[column_letter].width = adjusted_width
+
+                # Сохраняем файл
+                filename = f"отклики_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                file_path = f"exports/{filename}"
+
+                # Создаем директорию если её нет
+                import os
+                os.makedirs("exports", exist_ok=True)
+
+                wb.save(file_path)
+
+                # Отправляем файл
+                from aiogram.types import FSInputFile
+                file = FSInputFile(file_path, filename=filename)
+
+                await status_msg.edit_text(f"✅ Excel файл готов!\nОтклики: {len(applications)}")
+                await message.answer_document(
+                    file,
+                    caption=f"📊 Экспорт откликов\n\n"
+                           f"Всего откликов: {len(applications)}\n"
+                           f"Создан: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+                )
+
+                # Удаляем временный файл
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+
+                # Удаляем сообщения через 2 секунды
+                import asyncio
+                asyncio.create_task(delete_message_after_delay(status_msg, 2))
+                asyncio.create_task(delete_message_after_delay(message, 2))
+
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Ошибка создания Excel: {str(e)}")
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 2))
+            asyncio.create_task(delete_message_after_delay(message, 2))
