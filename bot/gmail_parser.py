@@ -109,14 +109,18 @@ class GmailParser:
 
     async def process_message(self, message_id):
         try:
-            # Сначала проверяем, не обработано ли уже это письмо
+            # Сначала проверяем, не обработано ли уже это письмо или не удалено ли оно
             async with AsyncSessionLocal() as session:
                 from sqlalchemy import select
                 existing_check = await session.execute(
                     select(Application).where(Application.gmail_message_id == message_id)
                 )
-                if existing_check.scalar_one_or_none():
-                    print(f"Письмо {message_id} уже обработано, пропускаем")
+                existing_app = existing_check.scalar_one_or_none()
+                if existing_app:
+                    if existing_app.deleted_at is not None:
+                        print(f"Письмо {message_id} было удалено, пропускаем")
+                    else:
+                        print(f"Письмо {message_id} уже обработано, пропускаем")
                     return {"success": False}
 
             message = self.service.users().messages().get(

@@ -59,10 +59,10 @@ def setup_handlers(dp: Dispatcher):
     async def stats_handler(message: Message) -> None:
         async with AsyncSessionLocal() as session:
             from sqlalchemy import text
-            total = await session.execute(text("SELECT COUNT(*) FROM applications"))
+            total = await session.execute(text("SELECT COUNT(*) FROM applications WHERE deleted_at IS NULL"))
             total_count = total.scalar()
 
-            processed = await session.execute(text("SELECT COUNT(*) FROM applications WHERE is_processed = true"))
+            processed = await session.execute(text("SELECT COUNT(*) FROM applications WHERE is_processed = true AND deleted_at IS NULL"))
             processed_count = processed.scalar()
 
             unprocessed = total_count - processed_count
@@ -91,8 +91,8 @@ def setup_handlers(dp: Dispatcher):
             keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
             for vacancy in vacancies:
-                # Считаем количество откликов для каждой вакансии
-                count_stmt = select(Application).where(Application.vacancy_id == vacancy.id)
+                # Считаем количество откликов для каждой вакансии (исключаем удаленные)
+                count_stmt = select(Application).where(Application.vacancy_id == vacancy.id, Application.deleted_at.is_(None))
                 count_result = await session.execute(count_stmt)
                 applications_count = len(count_result.scalars().all())
 
@@ -107,7 +107,7 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.message(Command("parse"))
     async def parse_handler(message: Message) -> None:
-        await message.answer("🔄 Начинаю парсинг новых писем...")
+        status_msg = await message.answer("🔄 Начинаю парсинг новых писем...")
 
         try:
             from bot.gmail_parser import GmailParser
@@ -124,19 +124,28 @@ def setup_handlers(dp: Dispatcher):
                     for vacancy in result["new_vacancies"]:
                         text += f"\n• {vacancy}"
 
-                await message.answer(text, parse_mode="HTML")
+                await status_msg.edit_text(text, parse_mode="HTML")
             else:
-                await message.answer("📭 Новых писем не найдено")
+                await status_msg.edit_text("📭 Новых писем не найдено")
+
+            # Удаляем сообщения через 2 секунды
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 2))
+            asyncio.create_task(delete_message_after_delay(message, 2))
 
         except Exception as e:
-            await message.answer(f"❌ Ошибка при парсинге: {str(e)}")
+            await status_msg.edit_text(f"❌ Ошибка при парсинге: {str(e)}")
+            # Удаляем сообщения с ошибкой через 2 секунды
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 2))
+            asyncio.create_task(delete_message_after_delay(message, 2))
 
     @dp.message(Command("unprocessed"))
     async def unprocessed_handler(message: Message) -> None:
         async with AsyncSessionLocal() as session:
-            # Получаем все необработанные отклики с вакансиями
+            # Получаем все необработанные отклики с вакансиями (исключаем удаленные)
             from sqlalchemy.orm import selectinload
-            stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+            stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
             result = await session.execute(stmt)
             unprocessed_applications = result.scalars().all()
 
@@ -183,8 +192,8 @@ def setup_handlers(dp: Dispatcher):
                 await query.message.edit_text("Вакансия не найдена")
                 return
 
-            # Получаем отклики на эту вакансию
-            apps_stmt = select(Application).where(Application.vacancy_id == callback_data.vacancy_id).order_by(desc(Application.created_at))
+            # Получаем отклики на эту вакансию (исключаем удаленные)
+            apps_stmt = select(Application).where(Application.vacancy_id == callback_data.vacancy_id, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
             apps_result = await session.execute(apps_stmt)
             applications = apps_result.scalars().all()
 
@@ -472,8 +481,9 @@ def setup_handlers(dp: Dispatcher):
                     except Exception as e:
                         print(f"Ошибка удаления файла: {e}")
 
-                # Удаляем отклик из базы данных
-                await session.delete(application)
+                # Используем soft delete вместо удаления из базы данных
+                from datetime import datetime
+                application.deleted_at = datetime.now()
                 await session.commit()
 
                 # Показываем уведомление об удалении
@@ -491,7 +501,7 @@ def setup_handlers(dp: Dispatcher):
                     # Возвращаемся к списку необработанных откликов
                     async with AsyncSessionLocal() as session:
                         from sqlalchemy.orm import selectinload
-                        stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+                        stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
                         result = await session.execute(stmt)
                         unprocessed_applications = result.scalars().all()
 
@@ -563,7 +573,7 @@ def setup_handlers(dp: Dispatcher):
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
                 for vacancy in vacancies:
-                    count_stmt = select(Application).where(Application.vacancy_id == vacancy.id)
+                    count_stmt = select(Application).where(Application.vacancy_id == vacancy.id, Application.deleted_at.is_(None))
                     count_result = await session.execute(count_stmt)
                     applications_count = len(count_result.scalars().all())
 
@@ -587,7 +597,7 @@ def setup_handlers(dp: Dispatcher):
                     await query.message.edit_text("Вакансия не найдена")
                     return
 
-                apps_stmt = select(Application).where(Application.vacancy_id == callback_data.vacancy_id).order_by(desc(Application.created_at))
+                apps_stmt = select(Application).where(Application.vacancy_id == callback_data.vacancy_id, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
                 apps_result = await session.execute(apps_stmt)
                 applications = apps_result.scalars().all()
 
@@ -630,7 +640,7 @@ def setup_handlers(dp: Dispatcher):
             # Возвращаемся к списку необработанных откликов
             async with AsyncSessionLocal() as session:
                 from sqlalchemy.orm import selectinload
-                stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+                stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
                 result = await session.execute(stmt)
                 unprocessed_applications = result.scalars().all()
 

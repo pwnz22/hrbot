@@ -28,5 +28,6 @@ class Application(Base):
     vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_processed = Column(Boolean, default=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     vacancy = relationship("Vacancy", back_populates="applications")
