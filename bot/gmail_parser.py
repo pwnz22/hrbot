@@ -71,9 +71,10 @@ class GmailParser:
             return None
 
     async def parse_new_emails(self):
+        parsed_count = 0
         try:
-            # Фильтруем письма от SomonTj с нужным заголовком (включая прочитанные)
-            query = 'from:noreply@somon.tj subject:"Отклик на вакансию"'
+            # Фильтруем только непрочитанные письма от SomonTj с нужным заголовком
+            query = 'from:noreply@somon.tj subject:"Отклик на вакансию" is:unread'
             results = self.service.users().messages().list(
                 userId='me', q=query
             ).execute()
@@ -81,10 +82,20 @@ class GmailParser:
             messages = results.get('messages', [])
 
             for message in messages:
-                await self.process_message(message['id'])
+                success = await self.process_message(message['id'])
+                if success:
+                    parsed_count += 1
+                    # Отмечаем письмо как прочитанное
+                    self.service.users().messages().modify(
+                        userId='me',
+                        id=message['id'],
+                        body={'removeLabelIds': ['UNREAD']}
+                    ).execute()
 
         except Exception as e:
             print(f"Ошибка парсинга писем: {e}")
+
+        return parsed_count
 
     async def process_message(self, message_id):
         try:
@@ -99,12 +110,12 @@ class GmailParser:
             # Проверяем что письмо от SomonTj
             if 'noreply@somon.tj' not in from_email:
                 print(f"Пропускаем письмо не от SomonTj: {from_email}")
-                return
+                return False
 
             # Проверяем что заголовок начинается с "Отклик на вакансию"
             if not subject.startswith('Отклик на вакансию'):
                 print(f"Пропускаем письмо без нужной темы: {subject}")
-                return
+                return False
 
             print(f"Обрабатываем письмо от SomonTj: {subject}")
 
@@ -127,16 +138,12 @@ class GmailParser:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(html_body, 'html.parser')
 
-                    print(f"🔍 Ищем ссылки в HTML письма...")
-
                     # Ищем все ссылки в письме
                     links = soup.find_all('a', href=True)
-                    print(f"🔍 Найдено {len(links)} ссылок в письме")
 
-                    for i, link in enumerate(links):
+                    for link in links:
                         href = link['href']
                         link_text = link.get_text().strip()
-                        print(f"🔍 Ссылка {i+1}: {href[:100]}... текст: '{link_text[:50]}'")
 
                         # Ищем ссылки на вложения Gmail с правильным форматом
                         if ('mail.google.com' in href and 'attid=' in href and 'view=att' in href):
@@ -144,8 +151,7 @@ class GmailParser:
                             # Пробуем извлечь имя файла из текста ссылки или окружающего контекста
                             if link_text and not link_text.startswith('http') and len(link_text) > 3:
                                 attachment_filename = link_text
-                            print(f"✅ Найдена ПРАВИЛЬНАЯ ссылка на вложение: {href}")
-                            print(f"✅ Имя файла: {attachment_filename}")
+                            print(f"✅ Найдена ссылка на вложение: {attachment_filename}")
                             return True
 
                         # Альтернативно ищем ссылки на mail-attachment.googleusercontent.com
@@ -153,7 +159,7 @@ class GmailParser:
                             attachment_url = href
                             if link_text and not link_text.startswith('http') and len(link_text) > 3:
                                 attachment_filename = link_text
-                            print(f"✅ Найдена ссылка на вложение (googleusercontent): {href}")
+                            print(f"✅ Найдена ссылка на вложение: {attachment_filename}")
                             return True
 
                 except Exception as e:
@@ -176,7 +182,7 @@ class GmailParser:
                             if attachment_id:
                                 # Формируем Gmail URL в нужном формате
                                 attachment_url = f"https://mail.google.com/mail/u/1?ui=2&ik=21f77b88b6&attid={attachment_id}&permmsgid=msg-f:{message_id}&view=att&zw&disp=inline"
-                                print(f"✅ Найдено вложение через parts: {attachment_filename}")
+                                print(f"✅ Найдено вложение: {attachment_filename}")
                                 return True
 
                         # Рекурсивно ищем во вложенных parts
@@ -228,21 +234,21 @@ class GmailParser:
                 try:
                     await session.commit()
                     print(f"✅ УСПЕШНО СОХРАНЕН отклик: {name} - {email} для вакансии: {vacancy_title}")
+                    return True
 
-                    # Отмечаем письмо как прочитанное
-                    self.mark_as_read(message_id)
                 except IntegrityError as e:
                     await session.rollback()
                     print(f"❌ Отклик уже существует: {message_id} - {e}")
-                    # Все равно отмечаем как прочитанное
-                    self.mark_as_read(message_id)
+                    return False
                 except Exception as e:
                     await session.rollback()
                     print(f"❌ ОШИБКА сохранения: {e}")
                     print(f"Данные: name={name}, email={email}, vacancy_id={vacancy.id if vacancy else None}")
+                    return False
 
         except Exception as e:
             print(f"Ошибка обработки сообщения {message_id}: {e}")
+            return False
 
     def extract_body(self, payload):
         body = ""
@@ -460,14 +466,3 @@ class GmailParser:
 
         return from_email.split('@')[0]
 
-    def mark_as_read(self, message_id):
-        """Отмечает сообщение как прочитанное"""
-        try:
-            self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={'removeLabelIds': ['UNREAD']}
-            ).execute()
-            print(f"Сообщение {message_id} отмечено как прочитанное")
-        except Exception as e:
-            print(f"Ошибка при отметке сообщения как прочитанное: {e}")
