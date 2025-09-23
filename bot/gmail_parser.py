@@ -53,14 +53,19 @@ class GmailParser:
             'phone': phones[0] if phones else None
         }
 
-    async def download_attachment(self, message_id, attachment_id, filename):
+    async def download_attachment(self, message_id, attachment_id, filename, applicant_name="Unknown"):
         try:
             attachment = self.service.users().messages().attachments().get(
                 userId='me', messageId=message_id, id=attachment_id
             ).execute()
 
             file_data = base64.urlsafe_b64decode(attachment['data'])
-            file_path = f"downloads/{message_id}_{filename}"
+
+            # Очищаем имя от недопустимых символов для имени файла
+            safe_name = "".join(c for c in applicant_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            safe_name = safe_name.replace(' ', '_')
+
+            file_path = f"downloads/{safe_name}_{filename}"
 
             async with aiofiles.open(file_path, 'wb') as f:
                 await f.write(file_data)
@@ -75,8 +80,8 @@ class GmailParser:
         new_vacancies = []
 
         try:
-            # Фильтруем только непрочитанные письма от SomonTj с нужным заголовком
-            query = 'from:noreply@somon.tj subject:"Отклик на вакансию" is:unread'
+            # Фильтруем письма от SomonTj с нужным заголовком (включая прочитанные)
+            query = 'from:noreply@somon.tj subject:"Отклик на вакансию"'
             results = self.service.users().messages().list(
                 userId='me', q=query
             ).execute()
@@ -93,13 +98,6 @@ class GmailParser:
                         vacancy_title = result.get('vacancy_title')
                         if vacancy_title and vacancy_title not in new_vacancies:
                             new_vacancies.append(vacancy_title)
-
-                    # Отмечаем письмо как прочитанное
-                    self.service.users().messages().modify(
-                        userId='me',
-                        id=message['id'],
-                        body={'removeLabelIds': ['UNREAD']}
-                    ).execute()
 
         except Exception as e:
             print(f"Ошибка парсинга писем: {e}")
@@ -216,22 +214,21 @@ class GmailParser:
                 if 'parts' in message['payload']:
                     find_attachments(message['payload']['parts'])
 
-            # Скачивание файлов
+            # Сначала извлекаем имя кандидата
+            name = contact_info.get('name') or 'Неизвестно'
+            if not name or name.strip() == '':
+                name = 'Неизвестно'
+
+            # Скачивание файлов с правильным именем
             file_path = None
             if 'parts' in message['payload']:
                 for part in message['payload']['parts']:
                     if part.get('filename'):
                         file_path = await self.download_attachment(
-                            message_id, part['body']['attachmentId'], part['filename']
+                            message_id, part['body']['attachmentId'], part['filename'], name
                         )
                         break
-
-            name = contact_info.get('name') or 'Неизвестно'
             email = contact_info.get('email') or ''
-
-            # Проверяем что name не None
-            if not name or name.strip() == '':
-                name = 'Неизвестно'
 
             print(f"Подготовка к сохранению: name={name}, email={email}")
 

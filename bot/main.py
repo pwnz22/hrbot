@@ -34,6 +34,7 @@ async def main():
         BotCommand(command="start", description="Главное меню"),
         BotCommand(command="stats", description="Статистика по откликам"),
         BotCommand(command="recent", description="Последние отклики"),
+        BotCommand(command="unprocessed", description="Все необработанные отклики"),
         BotCommand(command="parse", description="Парсить новые письма")
     ]
     await bot.set_my_commands(commands)

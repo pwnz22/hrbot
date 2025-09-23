@@ -19,14 +19,20 @@ class VacancyCallback(CallbackData, prefix="vacancy"):
 
 class ApplicationCallback(CallbackData, prefix="application"):
     application_id: int
+    source: str = "recent"  # "recent", "unprocessed" или "vacancy"
 
 class ProcessCallback(CallbackData, prefix="process"):
     application_id: int
     action: str  # "mark_processed" или "mark_unprocessed"
 
 class BackCallback(CallbackData, prefix="back"):
-    to: str  # "vacancies" или "applications"
+    to: str  # "vacancies", "applications" или "unprocessed"
     vacancy_id: int = 0  # Для возврата к приложениям конкретной вакансии
+
+class DeleteCallback(CallbackData, prefix="delete"):
+    application_id: int
+    action: str  # "confirm" или "cancel"
+    source: str = "recent"  # Откуда пришел пользователь
 
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
@@ -46,6 +52,7 @@ def setup_handlers(dp: Dispatcher):
                            "/start - Это сообщение\n"
                            "/stats - Статистика по откликам\n"
                            "/recent - Последние отклики\n"
+                           "/unprocessed - Все необработанные отклики\n"
                            "/parse - Парсить новые письма")
 
     @dp.message(Command("stats"))
@@ -124,6 +131,44 @@ def setup_handlers(dp: Dispatcher):
         except Exception as e:
             await message.answer(f"❌ Ошибка при парсинге: {str(e)}")
 
+    @dp.message(Command("unprocessed"))
+    async def unprocessed_handler(message: Message) -> None:
+        async with AsyncSessionLocal() as session:
+            # Получаем все необработанные отклики с вакансиями
+            from sqlalchemy.orm import selectinload
+            stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+            result = await session.execute(stmt)
+            unprocessed_applications = result.scalars().all()
+
+            if not unprocessed_applications:
+                await message.answer("✅ Все отклики обработаны!")
+                return
+
+            # Создаем клавиатуру с необработанными откликами
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            for app in unprocessed_applications:
+                # Формируем текст кнопки: {имя} - {телефон} - {email}
+                button_text = app.name
+                if app.phone:
+                    button_text += f" - {app.phone}"
+                if app.email:
+                    button_text += f" - {app.email}"
+
+                # Добавляем эмодзи для необработанных
+                button_text = f"❌ {button_text}"
+
+                button = InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=ApplicationCallback(application_id=app.id, source="unprocessed").pack()
+                )
+                keyboard.inline_keyboard.append([button])
+
+            text = f"❌ <b>Необработанные отклики ({len(unprocessed_applications)}):</b>\n\n"
+            text += "Выберите отклик для просмотра и обработки:"
+
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
     @dp.callback_query(VacancyCallback.filter())
     async def vacancy_applications_handler(query: CallbackQuery, callback_data: VacancyCallback) -> None:
         await query.answer()
@@ -164,7 +209,7 @@ def setup_handlers(dp: Dispatcher):
 
                 button = InlineKeyboardButton(
                     text=button_text,
-                    callback_data=ApplicationCallback(application_id=app.id).pack()
+                    callback_data=ApplicationCallback(application_id=app.id, source="vacancy").pack()
                 )
                 keyboard.inline_keyboard.append([button])
 
@@ -230,13 +275,29 @@ def setup_handlers(dp: Dispatcher):
                     text="✅ Отметить как обработанный",
                     callback_data=ProcessCallback(application_id=application.id, action="mark_processed").pack()
                 )
-            keyboard.inline_keyboard.append([process_button])
-
-            # Добавляем кнопку "Назад к откликам"
-            back_button = InlineKeyboardButton(
-                text="⬅️ Назад к откликам",
-                callback_data=BackCallback(to="applications", vacancy_id=application.vacancy_id).pack()
+            # Добавляем кнопку удаления
+            delete_button = InlineKeyboardButton(
+                text="🗑️ Удалить отклик",
+                callback_data=DeleteCallback(application_id=application.id, action="confirm", source=callback_data.source).pack()
             )
+            keyboard.inline_keyboard.append([process_button, delete_button])
+
+            # Добавляем кнопку "Назад" в зависимости от источника
+            if callback_data.source == "unprocessed":
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад к необработанным",
+                    callback_data=BackCallback(to="unprocessed").pack()
+                )
+            elif callback_data.source == "vacancy":
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад к откликам",
+                    callback_data=BackCallback(to="applications", vacancy_id=application.vacancy_id).pack()
+                )
+            else:  # source == "recent" или другое
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад к вакансиям",
+                    callback_data=BackCallback(to="vacancies").pack()
+                )
             keyboard.inline_keyboard.append([back_button])
 
             # Отправляем сообщение с информацией
@@ -318,9 +379,15 @@ def setup_handlers(dp: Dispatcher):
                     text="✅ Отметить как обработанный",
                     callback_data=ProcessCallback(application_id=application.id, action="mark_processed").pack()
                 )
-            keyboard.inline_keyboard.append([process_button])
+            # Добавляем кнопку удаления
+            delete_button = InlineKeyboardButton(
+                text="🗑️ Удалить отклик",
+                callback_data=DeleteCallback(application_id=application.id, action="confirm", source="vacancy").pack()
+            )
+            keyboard.inline_keyboard.append([process_button, delete_button])
 
-            # Добавляем кнопку "Назад к откликам"
+            # Получаем source из исходного callback (нужно передать через ProcessCallback)
+            # Пока используем applications как fallback
             back_button = InlineKeyboardButton(
                 text="⬅️ Назад к откликам",
                 callback_data=BackCallback(to="applications", vacancy_id=application.vacancy_id).pack()
@@ -336,6 +403,138 @@ def setup_handlers(dp: Dispatcher):
             # Удаляем сообщение через 1 секунду
             import asyncio
             asyncio.create_task(delete_message_after_delay(status_msg, 1))
+
+    @dp.callback_query(DeleteCallback.filter())
+    async def delete_handler(query: CallbackQuery, callback_data: DeleteCallback) -> None:
+        await query.answer()
+
+        if callback_data.action == "confirm":
+            # Показываем подтверждение удаления
+            async with AsyncSessionLocal() as session:
+                app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                app_result = await session.execute(app_stmt)
+                application = app_result.scalar_one_or_none()
+
+                if not application:
+                    await query.message.edit_text("❌ Отклик не найден")
+                    return
+
+                # Создаем клавиатуру подтверждения
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Да, удалить",
+                            callback_data=DeleteCallback(application_id=application.id, action="execute", source=callback_data.source).pack()
+                        ),
+                        InlineKeyboardButton(
+                            text="❌ Отмена",
+                            callback_data=DeleteCallback(application_id=application.id, action="cancel", source=callback_data.source).pack()
+                        )
+                    ]
+                ])
+
+                text = f"⚠️ <b>Подтверждение удаления</b>\n\n"
+                text += f"Вы действительно хотите удалить отклик?\n\n"
+                text += f"👤 <b>{application.name}</b>\n"
+                if application.email:
+                    text += f"📧 {application.email}\n"
+                if application.phone:
+                    text += f"📱 {application.phone}\n"
+                text += f"\n❗ <b>Это действие нельзя отменить!</b>"
+
+                await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+        elif callback_data.action == "execute":
+            # Удаляем сообщение с файлом резюме если оно есть
+            user_id = query.from_user.id
+            if user_id in user_resume_messages:
+                try:
+                    await query.bot.delete_message(chat_id=query.message.chat.id, message_id=user_resume_messages[user_id])
+                except Exception:
+                    pass  # Игнорируем ошибки если сообщение уже удалено
+                del user_resume_messages[user_id]
+
+            # Выполняем удаление
+            async with AsyncSessionLocal() as session:
+                app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                app_result = await session.execute(app_stmt)
+                application = app_result.scalar_one_or_none()
+
+                if not application:
+                    await query.message.edit_text("❌ Отклик не найден")
+                    return
+
+                # Удаляем файл если он существует
+                if application.file_path and os.path.exists(application.file_path):
+                    try:
+                        os.remove(application.file_path)
+                        print(f"Удален файл: {application.file_path}")
+                    except Exception as e:
+                        print(f"Ошибка удаления файла: {e}")
+
+                # Удаляем отклик из базы данных
+                await session.delete(application)
+                await session.commit()
+
+                # Показываем уведомление об удалении
+                await query.message.edit_text(
+                    f"✅ Отклик от <b>{application.name}</b> успешно удален",
+                    parse_mode="HTML"
+                )
+
+                # Ждем 1 секунду и возвращаемся к соответствующему меню
+                import asyncio
+                await asyncio.sleep(1)
+
+                # Возвращаемся к соответствующему меню в зависимости от источника
+                if callback_data.source == "unprocessed":
+                    # Возвращаемся к списку необработанных откликов
+                    async with AsyncSessionLocal() as session:
+                        from sqlalchemy.orm import selectinload
+                        stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+                        result = await session.execute(stmt)
+                        unprocessed_applications = result.scalars().all()
+
+                        if not unprocessed_applications:
+                            await query.message.edit_text("✅ Все отклики обработаны!", parse_mode="HTML")
+                            return
+
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+                        for app in unprocessed_applications:
+                            button_text = app.name
+                            if app.phone:
+                                button_text += f" - {app.phone}"
+                            if app.email:
+                                button_text += f" - {app.email}"
+
+                            button_text = f"❌ {button_text}"
+
+                            button = InlineKeyboardButton(
+                                text=button_text,
+                                callback_data=ApplicationCallback(application_id=app.id, source="unprocessed").pack()
+                            )
+                            keyboard.inline_keyboard.append([button])
+
+                        text = f"❌ <b>Необработанные отклики ({len(unprocessed_applications)}):</b>\n\n"
+                        text += "Выберите отклик для просмотра и обработки:"
+
+                        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+                elif callback_data.source == "vacancy":
+                    # Возвращаемся к списку откликов вакансии
+                    back_callback = BackCallback(to="applications", vacancy_id=application.vacancy_id)
+                    await back_handler(query, back_callback)
+
+                else:  # source == "recent" или другое
+                    # Возвращаемся к списку вакансий
+                    back_callback = BackCallback(to="vacancies")
+                    await back_handler(query, back_callback)
+
+        elif callback_data.action == "cancel":
+            # Отменяем удаление - возвращаемся к детальному просмотру
+            application_callback = ApplicationCallback(application_id=callback_data.application_id, source=callback_data.source)
+            await application_details_handler(query, application_callback)
 
     @dp.callback_query(BackCallback.filter())
     async def back_handler(query: CallbackQuery, callback_data: BackCallback) -> None:
@@ -424,5 +623,39 @@ def setup_handlers(dp: Dispatcher):
                 text = f"📋 Вакансия: <b>{vacancy.title}</b>\n"
                 text += f"📊 Всего откликов: <b>{len(applications)}</b>\n\n"
                 text += "Выберите отклик для просмотра подробностей:"
+
+                await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+        elif callback_data.to == "unprocessed":
+            # Возвращаемся к списку необработанных откликов
+            async with AsyncSessionLocal() as session:
+                from sqlalchemy.orm import selectinload
+                stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False).order_by(desc(Application.created_at))
+                result = await session.execute(stmt)
+                unprocessed_applications = result.scalars().all()
+
+                if not unprocessed_applications:
+                    await query.message.edit_text("✅ Все отклики обработаны!")
+                    return
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+                for app in unprocessed_applications:
+                    button_text = app.name
+                    if app.phone:
+                        button_text += f" - {app.phone}"
+                    if app.email:
+                        button_text += f" - {app.email}"
+
+                    button_text = f"❌ {button_text}"
+
+                    button = InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=ApplicationCallback(application_id=app.id, source="unprocessed").pack()
+                    )
+                    keyboard.inline_keyboard.append([button])
+
+                text = f"❌ <b>Необработанные отклики ({len(unprocessed_applications)}):</b>\n\n"
+                text += "Выберите отклик для просмотра и обработки:"
 
                 await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
