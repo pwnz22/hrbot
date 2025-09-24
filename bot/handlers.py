@@ -268,10 +268,6 @@ def setup_handlers(dp: Dispatcher):
             if application.applicant_message:
                 text += f"💬 <b>Сообщение от кандидата:</b>\n{application.applicant_message}\n\n"
 
-            if application.attachment_filename:
-                text += f"📎 <b>Вложение:</b> {application.attachment_filename}\n"
-                if application.file_url:
-                    text += f"🔗 <a href='{application.file_url}'>Ссылка на файл</a>\n\n"
 
             # Создаем кнопки для изменения статуса обработки и навигации
             keyboard = InlineKeyboardMarkup(inline_keyboard=[])
@@ -372,10 +368,6 @@ def setup_handlers(dp: Dispatcher):
             if application.applicant_message:
                 text += f"💬 <b>Сообщение от кандидата:</b>\n{application.applicant_message}\n\n"
 
-            if application.attachment_filename:
-                text += f"📎 <b>Вложение:</b> {application.attachment_filename}\n"
-                if application.file_url:
-                    text += f"🔗 <a href='{application.file_url}'>Ссылка на файл</a>\n\n"
 
             # Создаем обновленные кнопки
             keyboard = InlineKeyboardMarkup(inline_keyboard=[])
