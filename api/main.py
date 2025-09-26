@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import List, Optional
@@ -14,6 +15,14 @@ from api.schemas import VacancyResponse, VacancyCreate, ApplicationResponse, App
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HR Bot API", description="API для управления вакансиями и откликами", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3001", "http://localhost:3002", "https://localhost:3001", "https://localhost:3002"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():

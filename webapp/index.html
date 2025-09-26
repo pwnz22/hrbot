@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>HR Bot - Управление откликами</title>
+
+  <!-- Telegram WebApp Script -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Preload critical resources -->
+  <link rel="preload" href="/styles/global.css" as="style">
+
+  <!-- Meta tags for Telegram WebApp -->
+  <meta name="theme-color" content="#3390ec">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="HR Bot">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles/global.css">
+
+  <!-- Performance optimizations -->
+  <link rel="dns-prefetch" href="//telegram.org">
+
+  <style>
+    /* Critical CSS for initial load */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--tg-theme-bg-color, #ffffff);
+      color: var(--tg-theme-text-color, #000000);
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      overflow-x: hidden;
+    }
+
+    #app {
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* Loading screen */
+    .app-loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--tg-theme-bg-color, #ffffff);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 9999;
+    }
+
+    .loading-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #3390ec, #4ea5f5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      color: white;
+      animation: bounce 1.5s infinite;
+    }
+
+    .loading-text {
+      font-size: 14px;
+      color: var(--tg-theme-hint-color, #8e8e93);
+      font-weight: 500;
+    }
+
+    @keyframes bounce {
+      0%, 20%, 53%, 80%, 100% {
+        transform: translateY(0);
+      }
+      40%, 43% {
+        transform: translateY(-10px);
+      }
+      70% {
+        transform: translateY(-5px);
+      }
+      90% {
+        transform: translateY(-2px);
+      }
+    }
+
+    /* Hide loading screen when app is ready */
+    .app-ready .app-loading {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Loading Screen -->
+    <div class="app-loading">
+      <div class="loading-logo">👔</div>
+      <div class="loading-text">Загрузка HR Bot...</div>
+    </div>
+
+    <!-- Vue App will be mounted here -->
+  </div>
+
+  <!-- App Scripts -->
+  <script type="module">
+    // Initialize Telegram WebApp theme detection
+    const tg = window.Telegram?.WebApp;
+
+    if (tg) {
+      // Apply initial theme
+      const applyTheme = () => {
+        const root = document.documentElement;
+        const params = tg.themeParams;
+
+        if (params) {
+          Object.entries(params).forEach(([key, value]) => {
+            const cssVar = `--tg-theme-${key.replace(/_/g, '-')}`;
+            root.style.setProperty(cssVar, value);
+          });
+        }
+
+        // Add theme class
+        document.body.className = tg.colorScheme === 'dark' ? 'theme-dark' : 'theme-light';
+      };
+
+      // Apply theme immediately
+      applyTheme();
+
+      // Listen for theme changes
+      tg.onEvent('themeChanged', applyTheme);
+
+      // Set viewport properties
+      tg.ready();
+      tg.expand();
+
+      // Disable scrolling restore
+      if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+      }
+    } else {
+      // Development mode - mock Telegram WebApp
+      console.log('Running in development mode - Telegram WebApp not available');
+      document.body.className = 'theme-light';
+    }
+
+    // Remove loading screen when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        document.body.classList.add('app-ready');
+      }, 100);
+    });
+
+    // Performance monitoring
+    window.addEventListener('load', () => {
+      if ('performance' in window) {
+        const loadTime = performance.timing.loadEventEnd - performance.timing.navigationStart;
+        console.log('Page load time:', loadTime + 'ms');
+      }
+    });
+
+    // Error handling
+    window.addEventListener('error', (e) => {
+      console.error('Application error:', e.error);
+      // Send error to analytics or logging service
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('Unhandled promise rejection:', e.reason);
+      // Send error to analytics or logging service
+    });
+  </script>
+
+  <!-- Vue.js Application -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -315,14 +315,14 @@ def setup_handlers(dp: Dispatcher):
                 try:
                     from aiogram.types import FSInputFile
                     file = FSInputFile(application.file_path, filename=application.attachment_filename)
-                    file_msg = await query.message.answer_document(file, caption=f"📎 Резюме от {application.name}")
+                    file_msg = await query.message.answer_document(file, caption=f"Резюме от {application.name}")
                     # Сохраняем ID сообщения с файлом
                     user_resume_messages[user_id] = file_msg.message_id
                 except Exception as e:
                     error_msg = await query.message.answer(f"❌ Ошибка при отправке файла: {str(e)}")
                     user_resume_messages[user_id] = error_msg.message_id
             elif application.file_url:
-                url_msg = await query.message.answer(f"📎 Файл доступен по ссылке: {application.file_url}")
+                url_msg = await query.message.answer(f"Файл доступен по ссылке: {application.file_url}")
                 user_resume_messages[user_id] = url_msg.message_id
 
     @dp.callback_query(ProcessCallback.filter())
