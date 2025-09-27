@@ -15,12 +15,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database.database import AsyncSessionLocal
 from shared.models.vacancy import Application, Vacancy
+from shared.services.resume_summary_service import ResumeSummaryService
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 class GmailParser:
     def __init__(self):
         self.service = None
+        self.resume_summary_service = ResumeSummaryService()
         self.authenticate()
 
     def authenticate(self):
@@ -257,6 +259,20 @@ class GmailParser:
                 try:
                     await session.commit()
                     print(f"✅ УСПЕШНО СОХРАНЕН отклик: {name} - {email} для вакансии: {vacancy_title}")
+
+                    # Generate summary if application has resume file
+                    # ВРЕМЕННО ОТКЛЮЧЕНО - генерация через кнопку в боте
+                    # try:
+                    #     summary = await self.resume_summary_service.generate_summary_for_application(application, vacancy)
+                    #     if summary:
+                    #         application.summary = summary
+                    #         await session.commit()
+                    #         print(f"✅ SUMMARY сгенерирован для отклика: {name}")
+                    #     else:
+                    #         print(f"⚠️ SUMMARY не удалось сгенерировать для отклика: {name}")
+                    # except Exception as e:
+                    #     print(f"❌ ОШИБКА генерации summary для {name}: {e}")
+
                     return {
                         "success": True,
                         "new_vacancy": is_new_vacancy,

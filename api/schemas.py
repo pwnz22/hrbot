@@ -25,6 +25,7 @@ class ApplicationBase(BaseModel):
     attachment_filename: Optional[str] = None
     applicant_message: Optional[str] = None
     vacancy_id: Optional[int] = None
+    summary: Optional[str] = None
 
 class ApplicationCreate(ApplicationBase):
     gmail_message_id: str

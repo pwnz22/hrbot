@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database.database import AsyncSessionLocal
 from shared.models.vacancy import Application, Vacancy
+from shared.services.resume_summary_service import ResumeSummaryService
 
 # Словарь для хранения ID сообщений с файлами резюме для каждого пользователя
 user_resume_messages = {}
@@ -34,6 +35,14 @@ class DeleteCallback(CallbackData, prefix="delete"):
     action: str  # "confirm" или "cancel"
     source: str = "recent"  # Откуда пришел пользователь
 
+class SummaryCallback(CallbackData, prefix="summary"):
+    application_id: int
+    action: str  # "generate"
+
+class ResumeCallback(CallbackData, prefix="resume"):
+    application_id: int
+    action: str  # "download"
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -42,6 +51,22 @@ async def delete_message_after_delay(message, delay_seconds):
         await message.delete()
     except Exception:
         pass  # Игнорируем ошибки если сообщение уже удалено
+
+def clean_html_tags(text):
+    """Удаляет HTML теги и эмодзи из текста для Excel"""
+    if not text:
+        return ""
+
+    import re
+    # Удаляем HTML теги
+    text = re.sub(r'<[^>]+>', '', text)
+    # Удаляем эмодзи (базовые)
+    text = re.sub(r'[📋👤📧📱🔗📝🛠⏰🎓⚠️📊🤖📄]', '', text)
+    # Заменяем множественные пробелы на одинарные
+    text = re.sub(r'\s+', ' ', text)
+    # Убираем пробелы в начале и конце
+    text = text.strip()
+    return text
 
 def setup_handlers(dp: Dispatcher):
 
@@ -288,6 +313,33 @@ def setup_handlers(dp: Dispatcher):
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
 
+            # Добавляем кнопки для работы с резюме если есть файл
+            if (application.file_path or application.attachment_filename) and (
+                application.attachment_filename and
+                (application.attachment_filename.lower().endswith('.pdf') or application.attachment_filename.lower().endswith('.docx'))
+            ):
+                # Кнопка для работы с summary
+                if application.summary:
+                    # Если summary уже есть - показываем кнопку для отправки
+                    summary_button = InlineKeyboardButton(
+                        text="📊 Показать анализ резюме",
+                        callback_data=SummaryCallback(application_id=application.id, action="show").pack()
+                    )
+                else:
+                    # Если summary нет - показываем кнопку для генерации
+                    summary_button = InlineKeyboardButton(
+                        text="🤖 Сгенерировать анализ резюме",
+                        callback_data=SummaryCallback(application_id=application.id, action="generate").pack()
+                    )
+                keyboard.inline_keyboard.append([summary_button])
+
+                # Кнопка получения файла резюме
+                resume_button = InlineKeyboardButton(
+                    text="📄 Получить файл резюме",
+                    callback_data=ResumeCallback(application_id=application.id, action="download").pack()
+                )
+                keyboard.inline_keyboard.append([resume_button])
+
             # Добавляем кнопку "Назад" в зависимости от источника
             if callback_data.source == "unprocessed":
                 back_button = InlineKeyboardButton(
@@ -308,22 +360,6 @@ def setup_handlers(dp: Dispatcher):
 
             # Отправляем сообщение с информацией
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-
-            # Если есть файл, отправляем его и сохраняем ID сообщения
-            user_id = query.from_user.id
-            if application.file_path and os.path.exists(application.file_path):
-                try:
-                    from aiogram.types import FSInputFile
-                    file = FSInputFile(application.file_path, filename=application.attachment_filename)
-                    file_msg = await query.message.answer_document(file, caption=f"Резюме от {application.name}")
-                    # Сохраняем ID сообщения с файлом
-                    user_resume_messages[user_id] = file_msg.message_id
-                except Exception as e:
-                    error_msg = await query.message.answer(f"❌ Ошибка при отправке файла: {str(e)}")
-                    user_resume_messages[user_id] = error_msg.message_id
-            elif application.file_url:
-                url_msg = await query.message.answer(f"Файл доступен по ссылке: {application.file_url}")
-                user_resume_messages[user_id] = url_msg.message_id
 
     @dp.callback_query(ProcessCallback.filter())
     async def process_status_handler(query: CallbackQuery, callback_data: ProcessCallback) -> None:
@@ -697,7 +733,7 @@ def setup_handlers(dp: Dispatcher):
                 # Заголовки
                 headers = [
                     "ID", "Имя", "Email", "Телефон", "Вакансия",
-                    "Статус", "Дата отклика", "Сообщение", "Файл"
+                    "Статус", "Дата отклика", "Сообщение", "Файл", "Анализ резюме"
                 ]
 
                 # Стиль заголовков
@@ -725,6 +761,11 @@ def setup_handlers(dp: Dispatcher):
                     message_cell.alignment = Alignment(wrap_text=True, vertical="top")
 
                     ws.cell(row=row, column=9, value=app.attachment_filename or "")
+
+                    # Колонка "Анализ резюме" с очищенным от HTML текстом
+                    summary_text = clean_html_tags(app.summary) if app.summary else ""
+                    summary_cell = ws.cell(row=row, column=10, value=summary_text)
+                    summary_cell.alignment = Alignment(wrap_text=True, vertical="top")
 
                 # Автоширина колонок
                 for column in ws.columns:
@@ -777,3 +818,109 @@ def setup_handlers(dp: Dispatcher):
             import asyncio
             asyncio.create_task(delete_message_after_delay(status_msg, 2))
             asyncio.create_task(delete_message_after_delay(message, 2))
+
+    @dp.callback_query(SummaryCallback.filter())
+    async def summary_handler(query: CallbackQuery, callback_data: SummaryCallback) -> None:
+        await query.answer()
+
+        if callback_data.action == "show":
+            # Показываем готовый summary
+            async with AsyncSessionLocal() as session:
+                # Получаем отклик
+                app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                app_result = await session.execute(app_stmt)
+                application = app_result.scalar_one_or_none()
+
+                if not application:
+                    await query.message.answer("❌ Отклик не найден")
+                    return
+
+                if application.summary:
+                    # Отправляем готовый summary
+                    summary_msg = f"📊 <b>Анализ резюме для {application.name}:</b>\n\n{application.summary}"
+                    await query.message.answer(summary_msg, parse_mode="HTML")
+                else:
+                    await query.message.answer("❌ Анализ резюме не найден")
+
+        elif callback_data.action == "generate":
+            status_msg = await query.message.answer("🤖 Генерирую анализ резюме...")
+
+            try:
+                async with AsyncSessionLocal() as session:
+                    # Получаем отклик
+                    app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                    app_result = await session.execute(app_stmt)
+                    application = app_result.scalar_one_or_none()
+
+                    if not application:
+                        await status_msg.edit_text("❌ Отклик не найден")
+                        return
+
+                    # Получаем вакансию
+                    vacancy_stmt = select(Vacancy).where(Vacancy.id == application.vacancy_id)
+                    vacancy_result = await session.execute(vacancy_stmt)
+                    vacancy = vacancy_result.scalar_one_or_none()
+
+                    # Создаем сервис для генерации summary
+                    summary_service = ResumeSummaryService()
+
+                    # Генерируем summary
+                    summary = await summary_service.generate_summary_for_application(application, vacancy)
+
+                    if summary:
+                        # Сохраняем summary в базу данных
+                        application.summary = summary
+                        await session.commit()
+
+                        await status_msg.edit_text("✅ Анализ резюме сгенерирован!")
+
+                        # Отправляем сгенерированный summary
+                        summary_msg = f"🤖 <b>Анализ резюме для {application.name}:</b>\n\n{summary}"
+                        await query.message.answer(summary_msg, parse_mode="HTML")
+
+                        # Удаляем статусное сообщение через 2 секунды
+                        import asyncio
+                        asyncio.create_task(delete_message_after_delay(status_msg, 2))
+
+                    else:
+                        await status_msg.edit_text("❌ Не удалось сгенерировать анализ резюме")
+                        import asyncio
+                        asyncio.create_task(delete_message_after_delay(status_msg, 3))
+
+            except Exception as e:
+                await status_msg.edit_text(f"❌ Ошибка при генерации анализа: {str(e)}")
+                import asyncio
+                asyncio.create_task(delete_message_after_delay(status_msg, 3))
+
+    @dp.callback_query(ResumeCallback.filter())
+    async def resume_handler(query: CallbackQuery, callback_data: ResumeCallback) -> None:
+        await query.answer()
+
+        if callback_data.action == "download":
+            async with AsyncSessionLocal() as session:
+                # Получаем отклик
+                app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                app_result = await session.execute(app_stmt)
+                application = app_result.scalar_one_or_none()
+
+                if not application:
+                    await query.message.answer("❌ Отклик не найден")
+                    return
+
+                # Отправляем файл если он есть
+                user_id = query.from_user.id
+                if application.file_path and os.path.exists(application.file_path):
+                    try:
+                        from aiogram.types import FSInputFile
+                        file = FSInputFile(application.file_path, filename=application.attachment_filename)
+                        file_msg = await query.message.answer_document(file, caption=f"📄 Резюме от {application.name}")
+                        # Сохраняем ID сообщения с файлом
+                        user_resume_messages[user_id] = file_msg.message_id
+                    except Exception as e:
+                        error_msg = await query.message.answer(f"❌ Ошибка при отправке файла: {str(e)}")
+                        user_resume_messages[user_id] = error_msg.message_id
+                elif application.file_url:
+                    url_msg = await query.message.answer(f"📄 Файл резюме доступен по ссылке: {application.file_url}")
+                    user_resume_messages[user_id] = url_msg.message_id
+                else:
+                    await query.message.answer("❌ Файл резюме не найден")
