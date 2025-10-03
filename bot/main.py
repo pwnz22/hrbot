@@ -11,12 +11,14 @@ from aiogram.types import Message, BotCommand
 from dotenv import load_dotenv
 
 from bot.handlers import setup_handlers
+from bot.scheduler import GmailScheduler
 from shared.database.database import async_engine
 from shared.models.vacancy import Base
 
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
+GMAIL_CHECK_INTERVAL = int(os.getenv("GMAIL_CHECK_INTERVAL", "5"))  # По умолчанию 5 минут
 
 async def main():
     if not TOKEN:
@@ -42,9 +44,14 @@ async def main():
 
     setup_handlers(dp)
 
+    # Запускаем scheduler в фоновом режиме
+    scheduler = GmailScheduler(interval_minutes=GMAIL_CHECK_INTERVAL)
+    await scheduler.start_background()
+
     try:
         await dp.start_polling(bot)
     finally:
+        await scheduler.stop()
         await bot.session.close()
 
 if __name__ == "__main__":
