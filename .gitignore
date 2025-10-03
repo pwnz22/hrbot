@@ -42,8 +42,11 @@ venv.bak/
 hrbot.db
 
 # Gmail API credentials and tokens
+gmail_tokens/
+bot/gmail_accounts.json
 credentials.json
 token.json
+token_*.json
 
 # Downloaded files
 downloads/

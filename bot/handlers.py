@@ -43,6 +43,13 @@ class ResumeCallback(CallbackData, prefix="resume"):
     application_id: int
     action: str  # "download"
 
+class AccountCallback(CallbackData, prefix="account"):
+    account_id: str
+
+class AccountToggleCallback(CallbackData, prefix="account_toggle"):
+    account_id: str
+    action: str  # "enable" или "disable"
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -72,6 +79,19 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.message(CommandStart())
     async def command_start_handler(message: Message) -> None:
+        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+        # Создаем клавиатуру с командами
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
+                [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
+                [KeyboardButton(text="/accounts"), KeyboardButton(text="/add_account")],
+                [KeyboardButton(text="/export")]
+            ],
+            resize_keyboard=True
+        )
+
         await message.answer("Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
                            "Команды:\n"
                            "/start - Это сообщение\n"
@@ -79,7 +99,10 @@ def setup_handlers(dp: Dispatcher):
                            "/recent - Последние отклики\n"
                            "/unprocessed - Все необработанные отклики\n"
                            "/parse - Парсить новые письма\n"
-                           "/export - Экспорт откликов в Excel")
+                           "/export - Экспорт откликов в Excel\n"
+                           "/accounts - Управление Gmail аккаунтами\n"
+                           "/add_account - Добавить новый Gmail аккаунт",
+                           reply_markup=keyboard)
 
     @dp.message(Command("stats"))
     async def stats_handler(message: Message) -> None:
@@ -133,21 +156,51 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.message(Command("parse"))
     async def parse_handler(message: Message) -> None:
-        status_msg = await message.answer("🔄 Начинаю парсинг новых писем...")
+        status_msg = await message.answer("🔄 Начинаю парсинг новых писем из всех аккаунтов...")
 
         try:
+            import json
+            import os
             from bot.gmail_parser import GmailParser
-            parser = GmailParser()
 
-            # Парсим новые письма
-            result = await parser.parse_new_emails()
+            # Загружаем конфигурацию аккаунтов
+            accounts_config_path = "bot/gmail_accounts.json"
+            parsers = []
 
-            if result["parsed_count"] > 0:
-                text = f"✅ Парсинг завершен!\nОбработано новых откликов: <b>{result['parsed_count']}</b>"
+            if os.path.exists(accounts_config_path):
+                with open(accounts_config_path, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+
+                for account in accounts:
+                    if account.get('enabled', True):
+                        parser = GmailParser(
+                            account_id=account['id'],
+                            credentials_path=account['credentials_path'],
+                            token_path=account['token_path']
+                        )
+                        parsers.append(parser)
+            else:
+                # Если конфига нет, используем дефолтный аккаунт
+                parsers = [GmailParser()]
+
+            # Парсим новые письма из всех аккаунтов
+            total_parsed = 0
+            all_new_vacancies = []
+
+            for parser in parsers:
+                result = await parser.parse_new_emails()
+                total_parsed += result["parsed_count"]
 
                 if result["new_vacancies"]:
-                    text += f"\n\n<b>Новые вакансии ({len(result['new_vacancies'])}):</b>"
-                    for vacancy in result["new_vacancies"]:
+                    all_new_vacancies.extend(result["new_vacancies"])
+
+            if total_parsed > 0:
+                text = f"✅ Парсинг завершен!\nОбработано новых откликов: <b>{total_parsed}</b>"
+
+                if all_new_vacancies:
+                    unique_vacancies = list(set(all_new_vacancies))
+                    text += f"\n\n<b>Новые вакансии ({len(unique_vacancies)}):</b>"
+                    for vacancy in unique_vacancies:
                         text += f"\n• {vacancy}"
 
                 await status_msg.edit_text(text, parse_mode="HTML")
@@ -924,3 +977,234 @@ def setup_handlers(dp: Dispatcher):
                     user_resume_messages[user_id] = url_msg.message_id
                 else:
                     await query.message.answer("❌ Файл резюме не найден")
+
+    @dp.message(Command("accounts"))
+    async def accounts_handler(message: Message) -> None:
+        """Показывает список всех Gmail аккаунтов"""
+        import json
+        import os
+
+        accounts_config_path = "bot/gmail_accounts.json"
+
+        if not os.path.exists(accounts_config_path):
+            await message.answer("❌ Файл конфигурации аккаунтов не найден")
+            return
+
+        with open(accounts_config_path, 'r', encoding='utf-8') as f:
+            accounts = json.load(f)
+
+        if not accounts:
+            await message.answer("📭 Нет настроенных Gmail аккаунтов\n\n"
+                               "Используйте скрипт add_gmail_account.py для добавления")
+            return
+
+        # Создаем клавиатуру с аккаунтами
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+        for account in accounts:
+            status_emoji = "✅" if account.get('enabled', True) else "❌"
+            button_text = f"{status_emoji} {account.get('name', account['id'])}"
+
+            button = InlineKeyboardButton(
+                text=button_text,
+                callback_data=AccountCallback(account_id=account['id']).pack()
+            )
+            keyboard.inline_keyboard.append([button])
+
+        text = "📧 <b>Gmail аккаунты</b>\n\n"
+        text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
+        enabled_count = sum(1 for acc in accounts if acc.get('enabled', True))
+        text += f"Активных: <b>{enabled_count}</b>\n\n"
+        text += "Выберите аккаунт для просмотра деталей:"
+
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.callback_query(AccountCallback.filter())
+    async def account_details_handler(query: CallbackQuery, callback_data: AccountCallback) -> None:
+        """Показывает детали конкретного аккаунта"""
+        await query.answer()
+
+        import json
+        import os
+
+        accounts_config_path = "bot/gmail_accounts.json"
+
+        with open(accounts_config_path, 'r', encoding='utf-8') as f:
+            accounts = json.load(f)
+
+        # Находим аккаунт
+        account = None
+        for acc in accounts:
+            if acc['id'] == callback_data.account_id:
+                account = acc
+                break
+
+        if not account:
+            await query.message.edit_text("❌ Аккаунт не найден")
+            return
+
+        # Формируем детальную информацию
+        is_enabled = account.get('enabled', True)
+        status_emoji = "✅" if is_enabled else "❌"
+        status_text = "Активен" if is_enabled else "Отключен"
+
+        text = f"📧 <b>{account.get('name', account['id'])}</b>\n\n"
+        text += f"🆔 <b>ID:</b> <code>{account['id']}</code>\n"
+        text += f"🏷️ <b>Статус:</b> {status_emoji} {status_text}\n\n"
+
+        text += f"📂 <b>Файлы:</b>\n"
+        text += f"   • Credentials: <code>{account.get('credentials_path', 'Не указано')}</code>\n"
+        text += f"   • Token: <code>{account.get('token_path', 'Не указано')}</code>\n"
+
+        # Создаем кнопки управления
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+        if is_enabled:
+            toggle_button = InlineKeyboardButton(
+                text="❌ Отключить аккаунт",
+                callback_data=AccountToggleCallback(account_id=account['id'], action="disable").pack()
+            )
+        else:
+            toggle_button = InlineKeyboardButton(
+                text="✅ Включить аккаунт",
+                callback_data=AccountToggleCallback(account_id=account['id'], action="enable").pack()
+            )
+
+        keyboard.inline_keyboard.append([toggle_button])
+
+        # Кнопка "Назад"
+        back_button = InlineKeyboardButton(
+            text="⬅️ Назад к списку",
+            callback_data="back_to_accounts"
+        )
+        keyboard.inline_keyboard.append([back_button])
+
+        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.callback_query(AccountToggleCallback.filter())
+    async def account_toggle_handler(query: CallbackQuery, callback_data: AccountToggleCallback) -> None:
+        """Включает или отключает аккаунт"""
+        await query.answer()
+
+        import json
+
+        accounts_config_path = "bot/gmail_accounts.json"
+
+        with open(accounts_config_path, 'r', encoding='utf-8') as f:
+            accounts = json.load(f)
+
+        # Находим и обновляем аккаунт
+        account_updated = False
+        for account in accounts:
+            if account['id'] == callback_data.account_id:
+                if callback_data.action == "enable":
+                    account['enabled'] = True
+                    status_msg = f"✅ Аккаунт <b>{account.get('name', account['id'])}</b> включен"
+                else:
+                    account['enabled'] = False
+                    status_msg = f"❌ Аккаунт <b>{account.get('name', account['id'])}</b> отключен"
+                account_updated = True
+                break
+
+        if not account_updated:
+            await query.message.answer("❌ Аккаунт не найден")
+            return
+
+        # Сохраняем изменения
+        with open(accounts_config_path, 'w', encoding='utf-8') as f:
+            json.dump(accounts, f, indent=2, ensure_ascii=False)
+
+        # Показываем уведомление
+        notification = await query.message.answer(status_msg, parse_mode="HTML")
+
+        # Обновляем детали аккаунта
+        account_callback = AccountCallback(account_id=callback_data.account_id)
+        await account_details_handler(query, account_callback)
+
+        # Удаляем уведомление через 2 секунды
+        import asyncio
+        asyncio.create_task(delete_message_after_delay(notification, 2))
+
+    @dp.callback_query(lambda c: c.data == "back_to_accounts")
+    async def back_to_accounts_handler(query: CallbackQuery) -> None:
+        """Возвращается к списку аккаунтов"""
+        await query.answer()
+
+        import json
+        import os
+
+        accounts_config_path = "bot/gmail_accounts.json"
+
+        with open(accounts_config_path, 'r', encoding='utf-8') as f:
+            accounts = json.load(f)
+
+        # Создаем клавиатуру с аккаунтами
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+        for account in accounts:
+            status_emoji = "✅" if account.get('enabled', True) else "❌"
+            button_text = f"{status_emoji} {account.get('name', account['id'])}"
+
+            button = InlineKeyboardButton(
+                text=button_text,
+                callback_data=AccountCallback(account_id=account['id']).pack()
+            )
+            keyboard.inline_keyboard.append([button])
+
+        text = "📧 <b>Gmail аккаунты</b>\n\n"
+        text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
+        enabled_count = sum(1 for acc in accounts if acc.get('enabled', True))
+        text += f"Активных: <b>{enabled_count}</b>\n\n"
+        text += "Выберите аккаунт для просмотра деталей:"
+
+        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.message(Command("add_account"))
+    async def add_account_command_handler(message: Message) -> None:
+        """Добавляет новый Gmail аккаунт через OAuth"""
+        from bot.gmail_account_manager import GmailAccountManager
+
+        status_msg = await message.answer(
+            "🔐 <b>Добавление нового Gmail аккаунта</b>\n\n"
+            "⏳ Откроется браузер для авторизации...\n"
+            "Пожалуйста, подождите и выберите нужный Gmail аккаунт.",
+            parse_mode="HTML"
+        )
+
+        try:
+            # Запускаем авторизацию
+            success, msg, account_data = GmailAccountManager.add_new_account()
+
+            if success:
+                # Успешно добавлен
+                final_text = (
+                    "✅ <b>Новый аккаунт успешно добавлен!</b>\n\n"
+                    f"📧 <b>Email:</b> <code>{account_data['name']}</code>\n"
+                    f"🆔 <b>ID:</b> <code>{account_data['id']}</code>\n"
+                    f"🏷️ <b>Статус:</b> ❌ Отключен\n\n"
+                    "💡 <b>Следующие шаги:</b>\n"
+                    "1. Используйте /accounts\n"
+                    "2. Выберите этот аккаунт\n"
+                    "3. Нажмите \"✅ Включить аккаунт\""
+                )
+                await status_msg.edit_text(final_text, parse_mode="HTML")
+            else:
+                # Ошибка
+                await status_msg.edit_text(msg, parse_mode="HTML")
+
+            # Удаляем сообщения через 10 секунд
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 10))
+            asyncio.create_task(delete_message_after_delay(message, 10))
+
+        except Exception as e:
+            error_text = (
+                f"❌ <b>Ошибка авторизации</b>\n\n"
+                f"<code>{str(e)}</code>\n\n"
+                f"💡 Убедитесь, что credentials.json находится в gmail_tokens/"
+            )
+            await status_msg.edit_text(error_text, parse_mode="HTML")
+
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 10))
+            asyncio.create_task(delete_message_after_delay(message, 10))

@@ -20,28 +20,32 @@ from shared.services.resume_summary_service import ResumeSummaryService
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 class GmailParser:
-    def __init__(self):
+    def __init__(self, account_id="main", credentials_path="credentials.json", token_path="token.json"):
+        self.account_id = account_id
+        self.credentials_path = credentials_path
+        self.token_path = token_path
         self.service = None
         self.resume_summary_service = ResumeSummaryService()
         self.authenticate()
 
     def authenticate(self):
         creds = None
-        if os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        if os.path.exists(self.token_path):
+            creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', SCOPES)
+                    self.credentials_path, SCOPES)
                 creds = flow.run_local_server(port=0)
 
-            with open('token.json', 'w') as token:
+            with open(self.token_path, 'w') as token:
                 token.write(creds.to_json())
 
         self.service = build('gmail', 'v1', credentials=creds)
+        print(f"✅ Аутентификация выполнена для аккаунта: {self.account_id}")
 
     def extract_contact_info(self, text):
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
@@ -82,6 +86,7 @@ class GmailParser:
         new_vacancies = []
 
         try:
+            print(f"📧 Проверка аккаунта: {self.account_id}")
             # Фильтруем письма от SomonTj с нужным заголовком (включая прочитанные)
             query = 'from:noreply@somon.tj subject:"Отклик на вакансию"'
             results = self.service.users().messages().list(

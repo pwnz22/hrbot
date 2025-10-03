@@ -1,0 +1,16 @@
+[
+  {
+    "id": "account1",
+    "name": "HR Email 1",
+    "credentials_path": "gmail_tokens/credentials.json",
+    "token_path": "gmail_tokens/token_account1.json",
+    "enabled": true
+  },
+  {
+    "id": "account2",
+    "name": "HR Email 2",
+    "credentials_path": "gmail_tokens/credentials.json",
+    "token_path": "gmail_tokens/token_account2.json",
+    "enabled": true
+  }
+]
