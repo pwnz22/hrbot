@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Database (будет в volume)
+*.db
+*.sqlite
+*.sqlite3
+
+# Node.js (для webapp)
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/
+
+# Downloads и exports (будут в volumes)
+downloads/
+exports/
+
+# Documentation
+*.md
+!README.md
+
+# GitHub
+.github/
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# Credentials (важно!)
+credentials.json
+token.json

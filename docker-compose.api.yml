@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # FastAPI API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hrbot-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # База данных (shared с ботом)
+      - ./hrbot.db:/app/hrbot.db
+      # Скачанные файлы для API доступа
+      - ./downloads:/app/downloads
+      # Экспорты
+      - ./exports:/app/exports
+    networks:
+      - hrbot-network
+
+networks:
+  hrbot-network:
+    driver: bridge

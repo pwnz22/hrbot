@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Telegram бот
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hrbot-telegram
+    command: python -m bot.main
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # База данных
+      - ./hrbot.db:/app/hrbot.db
+      # Скачанные файлы (резюме)
+      - ./downloads:/app/downloads
+      # Экспорты
+      - ./exports:/app/exports
+      # Логи
+      - ./logs:/app/logs
+      # Gmail credentials (важно!)
+      - ./credentials.json:/app/credentials.json:ro
+      - ./token.json:/app/token.json
+    depends_on:
+      - api
+    networks:
+      - hrbot-network
+
+  # FastAPI API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hrbot-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # База данных (shared с ботом)
+      - ./hrbot.db:/app/hrbot.db
+      # Скачанные файлы для API доступа
+      - ./downloads:/app/downloads
+      # Экспорты
+      - ./exports:/app/exports
+    networks:
+      - hrbot-network
+
+  # Веб-приложение (Vue.js)
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapp
+    container_name: hrbot-webapp
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - api
+    networks:
+      - hrbot-network
+
+networks:
+  hrbot-network:
+    driver: bridge
+
+volumes:
+  # Можно использовать named volumes вместо bind mounts
+  # db-data:
+  # downloads-data:
+  # exports-data:
