@@ -245,7 +245,16 @@ class GmailParser:
 
             # Находим или создаем вакансию
             async with AsyncSessionLocal() as session:
-                vacancy, is_new_vacancy = await self.get_or_create_vacancy(session, vacancy_title, self.account_id)
+                # Получаем integer ID аккаунта из БД по account_id (строка типа "pwnz888")
+                from shared.models.gmail_account import GmailAccount
+                gmail_account_stmt = select(GmailAccount).where(GmailAccount.account_id == self.account_id)
+                gmail_account_result = await session.execute(gmail_account_stmt)
+                gmail_account = gmail_account_result.scalar_one_or_none()
+
+                # Используем integer id для связи
+                gmail_account_db_id = gmail_account.id if gmail_account else None
+
+                vacancy, is_new_vacancy = await self.get_or_create_vacancy(session, vacancy_title, gmail_account_db_id)
 
                 application = Application(
                     name=name,

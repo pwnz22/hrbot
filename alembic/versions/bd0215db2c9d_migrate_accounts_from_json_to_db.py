@@ -37,21 +37,22 @@ def upgrade() -> None:
         bind = op.get_bind()
 
         for account in accounts:
-            # Проверяем существует ли уже аккаунт
+            # Проверяем существует ли уже аккаунт по account_id (был id в JSON)
             result = bind.execute(
-                sa.text("SELECT id FROM gmail_accounts WHERE id = :id"),
-                {"id": account['id']}
+                sa.text("SELECT id FROM gmail_accounts WHERE account_id = :account_id"),
+                {"account_id": account['id']}
             )
 
             if not result.fetchone():
-                # Вставляем новый аккаунт
+                # Вставляем новый аккаунт (id будет автоинкрементный integer)
+                # account['id'] из JSON → account_id в БД
                 bind.execute(
                     sa.text("""
-                        INSERT INTO gmail_accounts (id, name, credentials_path, token_path, enabled, user_id)
-                        VALUES (:id, :name, :credentials_path, :token_path, :enabled, NULL)
+                        INSERT INTO gmail_accounts (account_id, name, credentials_path, token_path, enabled, user_id)
+                        VALUES (:account_id, :name, :credentials_path, :token_path, :enabled, NULL)
                     """),
                     {
-                        "id": account['id'],
+                        "account_id": account['id'],  # JSON id → account_id
                         "name": account.get('name', account['id']),
                         "credentials_path": account['credentials_path'],
                         "token_path": account['token_path'],
