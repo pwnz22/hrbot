@@ -314,8 +314,12 @@ def setup_handlers(dp: Dispatcher):
             await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(VacancyCallback.filter())
-    async def vacancy_applications_handler(query: CallbackQuery, callback_data: VacancyCallback) -> None:
+    async def vacancy_applications_handler(query: CallbackQuery, callback_data: VacancyCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав для просмотра откликов", show_alert=True)
+            return
 
         async with AsyncSessionLocal() as session:
             # Получаем вакансию
@@ -371,8 +375,12 @@ def setup_handlers(dp: Dispatcher):
             await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(ApplicationCallback.filter())
-    async def application_details_handler(query: CallbackQuery, callback_data: ApplicationCallback) -> None:
+    async def application_details_handler(query: CallbackQuery, callback_data: ApplicationCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав для просмотра откликов", show_alert=True)
+            return
 
         async with AsyncSessionLocal() as session:
             # Получаем отклик
@@ -471,8 +479,12 @@ def setup_handlers(dp: Dispatcher):
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
 
     @dp.callback_query(ProcessCallback.filter())
-    async def process_status_handler(query: CallbackQuery, callback_data: ProcessCallback) -> None:
+    async def process_status_handler(query: CallbackQuery, callback_data: ProcessCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('change_status'):
+            await query.answer("❌ У вас нет прав для изменения статуса", show_alert=True)
+            return
 
         async with AsyncSessionLocal() as session:
             # Получаем отклик
@@ -552,8 +564,12 @@ def setup_handlers(dp: Dispatcher):
             asyncio.create_task(delete_message_after_delay(status_msg, 1))
 
     @dp.callback_query(DeleteCallback.filter())
-    async def delete_handler(query: CallbackQuery, callback_data: DeleteCallback) -> None:
+    async def delete_handler(query: CallbackQuery, callback_data: DeleteCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('change_status'):
+            await query.answer("❌ У вас нет прав для удаления откликов", show_alert=True)
+            return
 
         if callback_data.action == "confirm":
             # Показываем подтверждение удаления
@@ -672,21 +688,25 @@ def setup_handlers(dp: Dispatcher):
                 elif callback_data.source == "vacancy":
                     # Возвращаемся к списку откликов вакансии
                     back_callback = BackCallback(to="applications", vacancy_id=application.vacancy_id)
-                    await back_handler(query, back_callback)
+                    await back_handler(query, back_callback, user)
 
                 else:  # source == "recent" или другое
                     # Возвращаемся к списку вакансий
                     back_callback = BackCallback(to="vacancies")
-                    await back_handler(query, back_callback)
+                    await back_handler(query, back_callback, user)
 
         elif callback_data.action == "cancel":
             # Отменяем удаление - возвращаемся к детальному просмотру
             application_callback = ApplicationCallback(application_id=callback_data.application_id, source=callback_data.source)
-            await application_details_handler(query, application_callback)
+            await application_details_handler(query, application_callback, user)
 
     @dp.callback_query(BackCallback.filter())
-    async def back_handler(query: CallbackQuery, callback_data: BackCallback) -> None:
+    async def back_handler(query: CallbackQuery, callback_data: BackCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
 
         # Удаляем сообщение с файлом резюме если оно есть
         user_id = query.from_user.id
@@ -930,8 +950,12 @@ def setup_handlers(dp: Dispatcher):
             asyncio.create_task(delete_message_after_delay(message, 2))
 
     @dp.callback_query(SummaryCallback.filter())
-    async def summary_handler(query: CallbackQuery, callback_data: SummaryCallback) -> None:
+    async def summary_handler(query: CallbackQuery, callback_data: SummaryCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
 
         if callback_data.action == "show":
             # Показываем готовый summary
@@ -1003,8 +1027,12 @@ def setup_handlers(dp: Dispatcher):
                 asyncio.create_task(delete_message_after_delay(status_msg, 3))
 
     @dp.callback_query(ResumeCallback.filter())
-    async def resume_handler(query: CallbackQuery, callback_data: ResumeCallback) -> None:
+    async def resume_handler(query: CallbackQuery, callback_data: ResumeCallback, user: TelegramUser) -> None:
         await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
 
         if callback_data.action == "download":
             async with AsyncSessionLocal() as session:
@@ -1078,9 +1106,13 @@ def setup_handlers(dp: Dispatcher):
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(AccountCallback.filter())
-    async def account_details_handler(query: CallbackQuery, callback_data: AccountCallback) -> None:
+    async def account_details_handler(query: CallbackQuery, callback_data: AccountCallback, user: TelegramUser) -> None:
         """Показывает детали конкретного аккаунта"""
         await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
 
         import json
         import os
@@ -1140,9 +1172,13 @@ def setup_handlers(dp: Dispatcher):
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(AccountToggleCallback.filter())
-    async def account_toggle_handler(query: CallbackQuery, callback_data: AccountToggleCallback) -> None:
+    async def account_toggle_handler(query: CallbackQuery, callback_data: AccountToggleCallback, user: TelegramUser) -> None:
         """Включает или отключает аккаунт"""
         await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
 
         import json
 
@@ -1184,9 +1220,13 @@ def setup_handlers(dp: Dispatcher):
         asyncio.create_task(delete_message_after_delay(notification, 2))
 
     @dp.callback_query(lambda c: c.data == "back_to_accounts")
-    async def back_to_accounts_handler(query: CallbackQuery) -> None:
+    async def back_to_accounts_handler(query: CallbackQuery, user: TelegramUser) -> None:
         """Возвращается к списку аккаунтов"""
         await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
 
         import json
         import os
@@ -1259,9 +1299,13 @@ def setup_handlers(dp: Dispatcher):
             await message.answer(error_text, parse_mode="HTML")
 
     @dp.message(lambda message: message.from_user.id in user_auth_states and user_auth_states.get(message.from_user.id))
-    async def handle_auth_code(message: Message) -> None:
+    async def handle_auth_code(message: Message, user: TelegramUser) -> None:
         """Обрабатывает код авторизации от пользователя"""
         from bot.gmail_account_manager import GmailAccountManager
+
+        if not user.is_admin:
+            await message.answer("❌ Только для администраторов")
+            return
 
         auth_code = message.text.strip()
 
