@@ -1283,7 +1283,8 @@ def setup_handlers(dp: Dispatcher):
         if callback_data.action == "show_users":
             # Показываем список пользователей для привязки
             async with AsyncSessionLocal() as session:
-                stmt = select(TelegramUser).where(TelegramUser.role.in_([RoleEnum.MODERATOR, RoleEnum.ADMIN]))
+                # Выбираем всех пользователей
+                stmt = select(TelegramUser).order_by(TelegramUser.role.desc(), TelegramUser.first_name)
                 result = await session.execute(stmt)
                 users = result.scalars().all()
 
@@ -1295,8 +1296,9 @@ def setup_handlers(dp: Dispatcher):
                 text = f"👥 <b>Выберите пользователя для привязки аккаунта:</b>\n\n"
 
                 for u in users:
-                    role_emoji = "👑" if u.is_admin else "👨‍💼"
-                    user_text = f"{role_emoji} {u.first_name or u.username or f'ID: {u.telegram_id}'}"
+                    role_emoji = "👑" if u.is_admin else ("👨‍💼" if u.is_moderator else "👤")
+                    role_text = u.role.value.upper()
+                    user_text = f"{role_emoji} {u.first_name or u.username or f'ID: {u.telegram_id}'} ({role_text})"
                     button = InlineKeyboardButton(
                         text=user_text,
                         callback_data=AccountLinkCallback(
