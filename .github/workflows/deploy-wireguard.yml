@@ -32,20 +32,16 @@ jobs:
           ping -c 3 ${{ secrets.SERVER_VPN_IP }}
           ip addr show wg0
 
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SERVER_VPN_IP }} >> ~/.ssh/known_hosts
-
       - name: Deploy to server
-        run: |
-          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.SERVER_VPN_IP }} << 'EOF'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_VPN_IP }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
             cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
             ./docker-deploy-bot.sh
-          EOF
 
       - name: Cleanup WireGuard
         if: always()
