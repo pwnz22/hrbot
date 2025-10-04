@@ -1482,8 +1482,8 @@ def setup_handlers(dp: Dispatcher):
                 # Возвращаемся к деталям аккаунта через 2 секунды
                 import asyncio
                 await asyncio.sleep(2)
-                account_callback = AccountCallback(account_id=callback_data.account_id)
-                await account_details_handler(query, account_callback)
+                callback_obj = AccountCallback(account_id=callback_data.account_id)
+                await account_details_handler(query, callback_obj)
 
     @dp.callback_query(AccountDeleteCallback.filter())
     async def account_delete_handler(query: CallbackQuery, callback_data: AccountDeleteCallback, user: TelegramUser) -> None:
