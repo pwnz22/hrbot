@@ -1,0 +1,53 @@
+name: Deploy via WireGuard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install WireGuard
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wireguard resolvconf
+
+      - name: Setup WireGuard connection
+        run: |
+          echo "${{ secrets.WIREGUARD_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+
+      - name: Verify WireGuard connection
+        run: |
+          sudo wg show
+          echo "Testing connection to server..."
+          ping -c 3 ${{ secrets.SERVER_VPN_IP }}
+          ip addr show wg0
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_VPN_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.SERVER_VPN_IP }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            git pull origin main
+            ./docker-deploy-bot.sh
+          EOF
+
+      - name: Cleanup WireGuard
+        if: always()
+        run: |
+          sudo wg-quick down wg0 || true
