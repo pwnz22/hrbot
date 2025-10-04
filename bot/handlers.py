@@ -1306,9 +1306,9 @@ def setup_handlers(dp: Dispatcher):
             from shared.models.gmail_account import GmailAccount
             from sqlalchemy.orm import selectinload
 
-            # Получаем аккаунт из БД
+            # Получаем аккаунт из БД по account_id (строка)
             stmt = select(GmailAccount).options(selectinload(GmailAccount.user)).where(
-                GmailAccount.id == callback_data.account_id
+                GmailAccount.account_id == callback_data.account_id
             )
             result = await session.execute(stmt)
             account = result.scalar_one_or_none()
@@ -1432,7 +1432,10 @@ def setup_handlers(dp: Dispatcher):
             async with AsyncSessionLocal() as session:
                 from shared.models.gmail_account import GmailAccount
 
-                gmail_account = await session.get(GmailAccount, callback_data.account_id)
+                # Ищем по account_id (строка)
+                stmt = select(GmailAccount).where(GmailAccount.account_id == callback_data.account_id)
+                result = await session.execute(stmt)
+                gmail_account = result.scalar_one_or_none()
                 if not gmail_account:
                     await query.message.edit_text("❌ Аккаунт не найден")
                     return
@@ -1452,31 +1455,16 @@ def setup_handlers(dp: Dispatcher):
         elif callback_data.action == "link":
             # Привязываем аккаунт к пользователю
             async with AsyncSessionLocal() as session:
-                # Проверяем или создаем запись в GmailAccount
                 from shared.models.gmail_account import GmailAccount
-                import json
-                import os
 
-                accounts_config_path = "bot/gmail_accounts.json"
-                with open(accounts_config_path, 'r', encoding='utf-8') as f:
-                    accounts = json.load(f)
+                # Ищем аккаунт в БД по account_id (строка)
+                stmt = select(GmailAccount).where(GmailAccount.account_id == callback_data.account_id)
+                result = await session.execute(stmt)
+                gmail_account = result.scalar_one_or_none()
 
-                account_data = next((acc for acc in accounts if acc['id'] == callback_data.account_id), None)
-                if not account_data:
+                if not gmail_account:
                     await query.message.edit_text("❌ Аккаунт не найден")
                     return
-
-                # Ищем или создаем запись в БД
-                gmail_account = await session.get(GmailAccount, callback_data.account_id)
-                if not gmail_account:
-                    gmail_account = GmailAccount(
-                        id=account_data['id'],
-                        name=account_data['name'],
-                        credentials_path=account_data['credentials_path'],
-                        token_path=account_data['token_path'],
-                        enabled=account_data.get('enabled', True)
-                    )
-                    session.add(gmail_account)
 
                 # Привязываем к пользователю
                 gmail_account.user_id = callback_data.user_id
@@ -1487,7 +1475,7 @@ def setup_handlers(dp: Dispatcher):
                 user_name = linked_user.first_name or linked_user.username or f"ID: {linked_user.telegram_id}"
 
                 await query.message.edit_text(
-                    f"✅ Аккаунт <b>{account_data['name']}</b> привязан к пользователю <b>{user_name}</b>",
+                    f"✅ Аккаунт <b>{gmail_account.name}</b> привязан к пользователю <b>{user_name}</b>",
                     parse_mode="HTML"
                 )
 
@@ -1511,7 +1499,10 @@ def setup_handlers(dp: Dispatcher):
             async with AsyncSessionLocal() as session:
                 from shared.models.gmail_account import GmailAccount
 
-                account = await session.get(GmailAccount, callback_data.account_id)
+                # Ищем по account_id (строка)
+                stmt = select(GmailAccount).where(GmailAccount.account_id == callback_data.account_id)
+                result = await session.execute(stmt)
+                account = result.scalar_one_or_none()
                 if not account:
                     await query.message.edit_text("❌ Аккаунт не найден")
                     return
@@ -1542,7 +1533,10 @@ def setup_handlers(dp: Dispatcher):
             async with AsyncSessionLocal() as session:
                 from shared.models.gmail_account import GmailAccount
 
-                account = await session.get(GmailAccount, callback_data.account_id)
+                # Ищем по account_id (строка)
+                stmt = select(GmailAccount).where(GmailAccount.account_id == callback_data.account_id)
+                result = await session.execute(stmt)
+                account = result.scalar_one_or_none()
                 if not account:
                     await query.message.edit_text("❌ Аккаунт не найден")
                     return
@@ -1584,8 +1578,10 @@ def setup_handlers(dp: Dispatcher):
         async with AsyncSessionLocal() as session:
             from shared.models.gmail_account import GmailAccount
 
-            # Получаем аккаунт из БД
-            account = await session.get(GmailAccount, callback_data.account_id)
+            # Получаем аккаунт из БД по account_id (строка)
+            stmt = select(GmailAccount).where(GmailAccount.account_id == callback_data.account_id)
+            result = await session.execute(stmt)
+            account = result.scalar_one_or_none()
 
             if not account:
                 await query.message.answer("❌ Аккаунт не найден")
