@@ -15,6 +15,7 @@ from bot.scheduler import GmailScheduler
 from shared.database.database import async_engine
 from shared.models.vacancy import Base
 from shared.models.user import TelegramUser
+from shared.models.gmail_account import GmailAccount  # Импортируем для создания таблицы
 
 load_dotenv()
 

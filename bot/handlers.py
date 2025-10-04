@@ -63,6 +63,11 @@ class UserRoleCallback(CallbackData, prefix="user_role"):
     user_id: int
     role: str  # "user", "moderator", "admin"
 
+class AccountLinkCallback(CallbackData, prefix="account_link"):
+    account_id: str
+    action: str  # "show_users", "link"
+    user_id: int = 0
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -185,8 +190,19 @@ def setup_handlers(dp: Dispatcher):
     @moderator_or_admin
     async def recent_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
-            # Получаем список вакансий с количеством откликов
-            stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
+            # Получаем список вакансий с фильтрацией по пользователю
+            if user.is_admin:
+                # Админ видит все вакансии
+                stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
+            else:
+                # Модератор видит только вакансии привязанных к нему аккаунтов
+                from shared.models.gmail_account import GmailAccount
+                stmt = select(Vacancy).join(
+                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id
+                ).where(
+                    GmailAccount.user_id == user.id
+                ).order_by(desc(Vacancy.created_at))
+
             result = await session.execute(stmt)
             vacancies = result.scalars().all()
 
@@ -1239,6 +1255,13 @@ def setup_handlers(dp: Dispatcher):
 
         keyboard.inline_keyboard.append([toggle_button])
 
+        # Кнопка "Привязать к пользователю"
+        link_button = InlineKeyboardButton(
+            text="👤 Привязать к пользователю",
+            callback_data=AccountLinkCallback(account_id=account['id'], action="show_users").pack()
+        )
+        keyboard.inline_keyboard.append([link_button])
+
         # Кнопка "Назад"
         back_button = InlineKeyboardButton(
             text="⬅️ Назад к списку",
@@ -1247,6 +1270,99 @@ def setup_handlers(dp: Dispatcher):
         keyboard.inline_keyboard.append([back_button])
 
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.callback_query(AccountLinkCallback.filter())
+    async def account_link_handler(query: CallbackQuery, callback_data: AccountLinkCallback, user: TelegramUser) -> None:
+        """Обработчик привязки аккаунта к пользователю"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
+
+        if callback_data.action == "show_users":
+            # Показываем список пользователей для привязки
+            async with AsyncSessionLocal() as session:
+                stmt = select(TelegramUser).where(TelegramUser.role.in_([RoleEnum.MODERATOR, RoleEnum.ADMIN]))
+                result = await session.execute(stmt)
+                users = result.scalars().all()
+
+                if not users:
+                    await query.message.edit_text("❌ Нет пользователей для привязки")
+                    return
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                text = f"👥 <b>Выберите пользователя для привязки аккаунта:</b>\n\n"
+
+                for u in users:
+                    role_emoji = "👑" if u.is_admin else "👨‍💼"
+                    user_text = f"{role_emoji} {u.first_name or u.username or f'ID: {u.telegram_id}'}"
+                    button = InlineKeyboardButton(
+                        text=user_text,
+                        callback_data=AccountLinkCallback(
+                            account_id=callback_data.account_id,
+                            action="link",
+                            user_id=u.id
+                        ).pack()
+                    )
+                    keyboard.inline_keyboard.append([button])
+
+                # Кнопка назад
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад",
+                    callback_data=AccountCallback(account_id=callback_data.account_id).pack()
+                )
+                keyboard.inline_keyboard.append([back_button])
+
+                await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+        elif callback_data.action == "link":
+            # Привязываем аккаунт к пользователю
+            async with AsyncSessionLocal() as session:
+                # Проверяем или создаем запись в GmailAccount
+                from shared.models.gmail_account import GmailAccount
+                import json
+                import os
+
+                accounts_config_path = "bot/gmail_accounts.json"
+                with open(accounts_config_path, 'r', encoding='utf-8') as f:
+                    accounts = json.load(f)
+
+                account_data = next((acc for acc in accounts if acc['id'] == callback_data.account_id), None)
+                if not account_data:
+                    await query.message.edit_text("❌ Аккаунт не найден")
+                    return
+
+                # Ищем или создаем запись в БД
+                gmail_account = await session.get(GmailAccount, callback_data.account_id)
+                if not gmail_account:
+                    gmail_account = GmailAccount(
+                        id=account_data['id'],
+                        name=account_data['name'],
+                        credentials_path=account_data['credentials_path'],
+                        token_path=account_data['token_path'],
+                        enabled=account_data.get('enabled', True)
+                    )
+                    session.add(gmail_account)
+
+                # Привязываем к пользователю
+                gmail_account.user_id = callback_data.user_id
+                await session.commit()
+
+                # Получаем пользователя для отображения
+                linked_user = await session.get(TelegramUser, callback_data.user_id)
+                user_name = linked_user.first_name or linked_user.username or f"ID: {linked_user.telegram_id}"
+
+                await query.message.edit_text(
+                    f"✅ Аккаунт <b>{account_data['name']}</b> привязан к пользователю <b>{user_name}</b>",
+                    parse_mode="HTML"
+                )
+
+                # Возвращаемся к деталям аккаунта через 2 секунды
+                import asyncio
+                await asyncio.sleep(2)
+                account_callback = AccountCallback(account_id=callback_data.account_id)
+                await account_details_handler(query, account_callback)
 
     @dp.callback_query(AccountToggleCallback.filter())
     async def account_toggle_handler(query: CallbackQuery, callback_data: AccountToggleCallback, user: TelegramUser) -> None:

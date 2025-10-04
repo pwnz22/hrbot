@@ -245,7 +245,7 @@ class GmailParser:
 
             # Находим или создаем вакансию
             async with AsyncSessionLocal() as session:
-                vacancy, is_new_vacancy = await self.get_or_create_vacancy(session, vacancy_title)
+                vacancy, is_new_vacancy = await self.get_or_create_vacancy(session, vacancy_title, self.account_id)
 
                 application = Application(
                     name=name,
@@ -484,7 +484,7 @@ class GmailParser:
             return subject.split(' - ', 1)[1].strip()
         return subject.replace('Отклик на вакансию', '').strip()
 
-    async def get_or_create_vacancy(self, session, title):
+    async def get_or_create_vacancy(self, session, title, gmail_account_id=None):
         """Находит существующую вакансию или создает новую"""
         try:
             from sqlalchemy import select
@@ -494,10 +494,14 @@ class GmailParser:
 
             is_new_vacancy = False
             if not vacancy:
-                vacancy = Vacancy(title=title, description=f"Вакансия с сайта SomonTj: {title}")
+                vacancy = Vacancy(
+                    title=title,
+                    description=f"Вакансия с сайта SomonTj: {title}",
+                    gmail_account_id=gmail_account_id
+                )
                 session.add(vacancy)
                 await session.flush()  # Получаем ID без коммита
-                print(f"Создана новая вакансия: {title}")
+                print(f"Создана новая вакансия: {title} (Gmail account: {gmail_account_id})")
                 is_new_vacancy = True
 
             return vacancy, is_new_vacancy

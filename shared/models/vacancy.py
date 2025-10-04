@@ -10,8 +10,10 @@ class Vacancy(Base):
     title = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    gmail_account_id = Column(String, ForeignKey("gmail_accounts.id"), nullable=True)  # Привязка к Gmail аккаунту
 
     applications = relationship("Application", back_populates="vacancy")
+    gmail_account = relationship("GmailAccount", back_populates="vacancies")
 
 class Application(Base):
     __tablename__ = "applications"
