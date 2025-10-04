@@ -64,7 +64,7 @@ class GmailAccountManager:
             return False, f"❌ Ошибка генерации URL: {str(e)}", None
 
     @staticmethod
-    def complete_auth_with_code(auth_code):
+    async def complete_auth_with_code(auth_code):
         """
         Завершает авторизацию используя код от пользователя
         Возвращает: (success: bool, message: str, account_data: dict или None)
@@ -96,42 +96,52 @@ class GmailAccountManager:
             # Генерируем ID
             account_id = email.split('@')[0].replace('.', '_')
 
-            # Загружаем существующие аккаунты
-            accounts = GmailAccountManager.load_accounts()
+            # Проверяем дубликаты в БД
+            from shared.database.database import AsyncSessionLocal
+            from shared.models.gmail_account import GmailAccount
+            from sqlalchemy import select
 
-            # Проверяем дубликаты
-            for account in accounts:
-                if account['id'] == account_id:
+            async with AsyncSessionLocal() as session:
+                # Проверяем существование аккаунта
+                stmt = select(GmailAccount).where(GmailAccount.account_id == account_id)
+                result = await session.execute(stmt)
+                existing_account = result.scalar_one_or_none()
+
+                if existing_account:
                     return False, f"⚠️ Аккаунт {email} уже добавлен", None
 
-            # Сохраняем token
-            token_path = f"gmail_tokens/token_{account_id}.json"
-            os.makedirs('gmail_tokens', exist_ok=True)
+                # Сохраняем token
+                token_path = f"gmail_tokens/token_{account_id}.json"
+                os.makedirs('gmail_tokens', exist_ok=True)
 
-            with open(token_path, 'w') as token_file:
-                token_file.write(creds.to_json())
+                with open(token_path, 'w') as token_file:
+                    token_file.write(creds.to_json())
 
-            # Создаем запись аккаунта
-            new_account = {
-                "id": account_id,
-                "name": email,
-                "credentials_path": CREDENTIALS_PATH,
-                "token_path": token_path,
-                "enabled": False  # По умолчанию отключен
-            }
+                # Создаем запись в БД
+                new_account = GmailAccount(
+                    account_id=account_id,
+                    name=email,
+                    credentials_path=CREDENTIALS_PATH,
+                    token_path=token_path,
+                    enabled=False  # По умолчанию отключен
+                )
 
-            # Добавляем в список
-            accounts.append(new_account)
-            GmailAccountManager.save_accounts(accounts)
+                session.add(new_account)
+                await session.commit()
 
-            success_message = (
-                f"✅ Аккаунт успешно добавлен!\n"
-                f"📧 Email: {email}\n"
-                f"🆔 ID: {account_id}\n"
-                f"🏷️ Статус: ❌ Отключен (по умолчанию)"
-            )
+                success_message = (
+                    f"✅ Аккаунт успешно добавлен!\n"
+                    f"📧 Email: {email}\n"
+                    f"🆔 ID: {account_id}\n"
+                    f"🏷️ Статус: ❌ Отключен (по умолчанию)"
+                )
 
-            return True, success_message, new_account
+                account_data = {
+                    "id": account_id,
+                    "name": email
+                }
+
+                return True, success_message, account_data
 
         except Exception as e:
             return False, f"❌ Ошибка авторизации: {str(e)}", None

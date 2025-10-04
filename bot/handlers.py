@@ -1711,7 +1711,7 @@ def setup_handlers(dp: Dispatcher):
 
         try:
             # Завершаем авторизацию с кодом
-            success, msg, account_data = GmailAccountManager.complete_auth_with_code(auth_code)
+            success, msg, account_data = await GmailAccountManager.complete_auth_with_code(auth_code)
 
             # Убираем состояние ожидания кода
             del user_auth_states[message.from_user.id]
