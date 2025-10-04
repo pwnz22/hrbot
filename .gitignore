@@ -40,6 +40,7 @@ venv.bak/
 *.sqlite
 *.sqlite3
 hrbot.db
+data/
 
 # Gmail API credentials and tokens
 gmail_tokens/

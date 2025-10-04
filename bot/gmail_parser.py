@@ -20,7 +20,7 @@ from shared.services.resume_summary_service import ResumeSummaryService
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 class GmailParser:
-    def __init__(self, account_id="main", credentials_path="credentials.json", token_path="token.json"):
+    def __init__(self, account_id="main", credentials_path="gmail_tokens/credentials.json", token_path="gmail_tokens/token_main.json"):
         self.account_id = account_id
         self.credentials_path = credentials_path
         self.token_path = token_path

@@ -44,14 +44,24 @@ async def main():
 
     setup_handlers(dp)
 
-    # Запускаем scheduler в фоновом режиме
-    scheduler = GmailScheduler(interval_minutes=GMAIL_CHECK_INTERVAL)
-    await scheduler.start_background()
+    # Запускаем scheduler в фоновом режиме (только если есть credentials)
+    scheduler = None
+    try:
+        import os
+        if os.path.exists('gmail_tokens/credentials.json'):
+            scheduler = GmailScheduler(interval_minutes=GMAIL_CHECK_INTERVAL)
+            await scheduler.start_background()
+            print("✅ Gmail scheduler запущен")
+        else:
+            print("⚠️ Gmail credentials не найден, scheduler отключен")
+    except Exception as e:
+        print(f"⚠️ Не удалось запустить Gmail scheduler: {e}")
 
     try:
         await dp.start_polling(bot)
     finally:
-        await scheduler.stop()
+        if scheduler:
+            await scheduler.stop()
         await bot.session.close()
 
 if __name__ == "__main__":
