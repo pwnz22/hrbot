@@ -48,7 +48,6 @@ jobs:
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
-            docker-compose run --rm bot alembic upgrade head
             ./docker-deploy-bot.sh
 
       - name: Cleanup WireGuard
