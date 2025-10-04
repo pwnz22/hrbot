@@ -261,7 +261,6 @@ class GmailParser:
                     email=email,
                     phone=contact_info.get('phone'),
                     file_path=file_path,
-                    file_url=attachment_url,
                     attachment_filename=attachment_filename,
                     gmail_message_id=message_id,
                     applicant_message=contact_info.get('message'),
