@@ -23,7 +23,6 @@ class Application(Base):
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     file_path = Column(String(500), nullable=True)
-    file_url = Column(String(500), nullable=True)
     attachment_filename = Column(String(255), nullable=True)
     gmail_message_id = Column(String(255), unique=True, nullable=False)
     applicant_message = Column(Text, nullable=True)
