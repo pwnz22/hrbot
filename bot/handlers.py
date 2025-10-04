@@ -1159,21 +1159,71 @@ def setup_handlers(dp: Dispatcher):
 
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
+    # Словарь для хранения состояния авторизации пользователей
+    user_auth_states = {}
+
     @dp.message(Command("add_account"))
     async def add_account_command_handler(message: Message) -> None:
         """Добавляет новый Gmail аккаунт через OAuth"""
         from bot.gmail_account_manager import GmailAccountManager
 
-        status_msg = await message.answer(
-            "🔐 <b>Добавление нового Gmail аккаунта</b>\n\n"
-            "⏳ Откроется браузер для авторизации...\n"
-            "Пожалуйста, подождите и выберите нужный Gmail аккаунт.",
-            parse_mode="HTML"
-        )
+        try:
+            # Генерируем OAuth URL
+            success, auth_url, flow_data = GmailAccountManager.generate_auth_url()
+
+            if not success:
+                await message.answer(auth_url, parse_mode="HTML")
+                return
+
+            # Сохраняем состояние ожидания кода для этого пользователя
+            user_auth_states[message.from_user.id] = True
+
+            auth_msg = (
+                "🔐 <b>Добавление нового Gmail аккаунта</b>\n\n"
+                "1️⃣ Перейдите по ссылке ниже для авторизации:\n"
+                f"<a href='{auth_url}'>Открыть страницу авторизации Google</a>\n\n"
+                "2️⃣ Выберите Gmail аккаунт и разрешите доступ\n\n"
+                "3️⃣ Скопируйте код авторизации\n\n"
+                "4️⃣ Отправьте мне этот код следующим сообщением\n\n"
+                "💡 Код начинается с <code>4/</code> и выглядит примерно так:\n"
+                "<code>4/0Adeu5BW...</code>"
+            )
+
+            await message.answer(auth_msg, parse_mode="HTML", disable_web_page_preview=True)
+
+        except Exception as e:
+            error_text = (
+                f"❌ <b>Ошибка генерации ссылки</b>\n\n"
+                f"<code>{str(e)}</code>\n\n"
+                f"💡 Убедитесь, что credentials.json находится в gmail_tokens/"
+            )
+            await message.answer(error_text, parse_mode="HTML")
+
+    @dp.message(lambda message: message.from_user.id in user_auth_states and user_auth_states.get(message.from_user.id))
+    async def handle_auth_code(message: Message) -> None:
+        """Обрабатывает код авторизации от пользователя"""
+        from bot.gmail_account_manager import GmailAccountManager
+
+        auth_code = message.text.strip()
+
+        # Проверяем что это похоже на код авторизации
+        if not auth_code.startswith('4/'):
+            await message.answer(
+                "⚠️ Это не похоже на код авторизации.\n\n"
+                "Код должен начинаться с <code>4/</code>\n"
+                "Попробуйте еще раз или отправьте /cancel для отмены.",
+                parse_mode="HTML"
+            )
+            return
+
+        status_msg = await message.answer("⏳ Проверяю код авторизации...")
 
         try:
-            # Запускаем авторизацию
-            success, msg, account_data = GmailAccountManager.add_new_account()
+            # Завершаем авторизацию с кодом
+            success, msg, account_data = GmailAccountManager.complete_auth_with_code(auth_code)
+
+            # Убираем состояние ожидания кода
+            del user_auth_states[message.from_user.id]
 
             if success:
                 # Успешно добавлен
@@ -1192,19 +1242,33 @@ def setup_handlers(dp: Dispatcher):
                 # Ошибка
                 await status_msg.edit_text(msg, parse_mode="HTML")
 
-            # Удаляем сообщения через 10 секунд
+            # Удаляем сообщение с кодом (для безопасности)
             import asyncio
-            asyncio.create_task(delete_message_after_delay(status_msg, 10))
-            asyncio.create_task(delete_message_after_delay(message, 10))
+            asyncio.create_task(delete_message_after_delay(message, 1))
 
         except Exception as e:
+            # Убираем состояние ожидания кода
+            if message.from_user.id in user_auth_states:
+                del user_auth_states[message.from_user.id]
+
             error_text = (
                 f"❌ <b>Ошибка авторизации</b>\n\n"
                 f"<code>{str(e)}</code>\n\n"
-                f"💡 Убедитесь, что credentials.json находится в gmail_tokens/"
+                f"💡 Попробуйте еще раз: /add_account"
             )
             await status_msg.edit_text(error_text, parse_mode="HTML")
 
+            # Удаляем сообщение с кодом
             import asyncio
-            asyncio.create_task(delete_message_after_delay(status_msg, 10))
-            asyncio.create_task(delete_message_after_delay(message, 10))
+            asyncio.create_task(delete_message_after_delay(message, 1))
+
+    @dp.message(Command("cancel"))
+    async def cancel_handler(message: Message) -> None:
+        """Отменяет текущую операцию"""
+        user_id = message.from_user.id
+
+        if user_id in user_auth_states:
+            del user_auth_states[user_id]
+            await message.answer("✅ Операция отменена")
+        else:
+            await message.answer("❌ Нет активных операций для отмены")

@@ -33,9 +33,40 @@ class GmailAccountManager:
             json.dump(accounts, f, indent=2, ensure_ascii=False)
 
     @staticmethod
-    def add_new_account():
+    def generate_auth_url():
         """
-        Добавляет новый Gmail аккаунт через OAuth авторизацию
+        Генерирует OAuth URL для авторизации
+        Возвращает: (success: bool, auth_url: str или error_message: str, flow_data: dict или None)
+        """
+        # Проверяем наличие credentials
+        if not os.path.exists(CREDENTIALS_PATH):
+            return False, "❌ Файл credentials.json не найден в gmail_tokens/", None
+
+        try:
+            # Создаем OAuth flow
+            flow = InstalledAppFlow.from_client_secrets_file(
+                CREDENTIALS_PATH,
+                SCOPES,
+                redirect_uri='urn:ietf:wg:oauth:2.0:oob'  # Для manual copy/paste
+            )
+
+            auth_url, _ = flow.authorization_url(prompt='consent')
+
+            # Сохраняем flow данные для последующего использования
+            flow_data = {
+                'client_config': flow.client_config,
+                'scopes': SCOPES
+            }
+
+            return True, auth_url, flow_data
+
+        except Exception as e:
+            return False, f"❌ Ошибка генерации URL: {str(e)}", None
+
+    @staticmethod
+    def complete_auth_with_code(auth_code):
+        """
+        Завершает авторизацию используя код от пользователя
         Возвращает: (success: bool, message: str, account_data: dict или None)
         """
         # Проверяем наличие credentials
@@ -43,9 +74,16 @@ class GmailAccountManager:
             return False, "❌ Файл credentials.json не найден в gmail_tokens/", None
 
         try:
-            # OAuth авторизация
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
+            # Создаем flow заново
+            flow = InstalledAppFlow.from_client_secrets_file(
+                CREDENTIALS_PATH,
+                SCOPES,
+                redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+            )
+
+            # Получаем токен используя код
+            flow.fetch_token(code=auth_code)
+            creds = flow.credentials
 
             # Получаем email адрес
             service = build('gmail', 'v1', credentials=creds)
