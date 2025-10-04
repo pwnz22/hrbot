@@ -231,32 +231,44 @@ def setup_handlers(dp: Dispatcher):
     @dp.message(Command("parse"))
     @moderator_or_admin
     async def parse_handler(message: Message, user: TelegramUser) -> None:
-        status_msg = await message.answer("🔄 Начинаю парсинг новых писем из всех аккаунтов...")
+        status_msg = await message.answer("🔄 Начинаю парсинг новых писем...")
 
         try:
             import json
             import os
             from bot.gmail_parser import GmailParser
+            from shared.models.gmail_account import GmailAccount
 
-            # Загружаем конфигурацию аккаунтов
-            accounts_config_path = "bot/gmail_accounts.json"
+            # Получаем список аккаунтов для парсинга в зависимости от роли
+            async with AsyncSessionLocal() as session:
+                if user.is_admin:
+                    # Админ парсит все активные аккаунты
+                    stmt = select(GmailAccount).where(GmailAccount.enabled == True)
+                else:
+                    # Модератор парсит только свои привязанные аккаунты
+                    stmt = select(GmailAccount).where(
+                        GmailAccount.enabled == True,
+                        GmailAccount.user_id == user.id
+                    )
+
+                result = await session.execute(stmt)
+                accounts_from_db = result.scalars().all()
+
             parsers = []
 
-            if os.path.exists(accounts_config_path):
-                with open(accounts_config_path, 'r', encoding='utf-8') as f:
-                    accounts = json.load(f)
+            # Создаем парсеры для найденных аккаунтов
+            for account in accounts_from_db:
+                if os.path.exists(account.credentials_path) and os.path.exists(account.token_path):
+                    parser = GmailParser(
+                        account_id=account.id,
+                        credentials_path=account.credentials_path,
+                        token_path=account.token_path
+                    )
+                    parsers.append(parser)
 
-                for account in accounts:
-                    if account.get('enabled', True):
-                        parser = GmailParser(
-                            account_id=account['id'],
-                            credentials_path=account['credentials_path'],
-                            token_path=account['token_path']
-                        )
-                        parsers.append(parser)
-            else:
-                # Если конфига нет, используем дефолтный аккаунт
-                parsers = [GmailParser()]
+            if not parsers:
+                await status_msg.edit_text("❌ Нет доступных аккаунтов для парсинга")
+                return
 
             # Парсим новые письма из всех аккаунтов
             total_parsed = 0
