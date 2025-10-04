@@ -1332,10 +1332,6 @@ def setup_handlers(dp: Dispatcher):
             else:
                 text += f"👤 <b>Привязка:</b> Не привязан\n"
 
-            text += f"\n📂 <b>Файлы:</b>\n"
-            text += f"   • Credentials: <code>{account.credentials_path}</code>\n"
-            text += f"   • Token: <code>{account.token_path}</code>\n"
-
             # Создаем кнопки управления
             keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
