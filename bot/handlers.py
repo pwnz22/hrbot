@@ -326,7 +326,7 @@ def setup_handlers(dp: Dispatcher):
             for account in accounts_from_db:
                 if os.path.exists(account.credentials_path) and os.path.exists(account.token_path):
                     parser = GmailParser(
-                        account_id=account.id,
+                        account_id=account.account_id,
                         credentials_path=account.credentials_path,
                         token_path=account.token_path
                     )
@@ -1281,7 +1281,7 @@ def setup_handlers(dp: Dispatcher):
 
                 button = InlineKeyboardButton(
                     text=button_text,
-                    callback_data=AccountCallback(account_id=account.id).pack()
+                    callback_data=AccountCallback(account_id=account.account_id).pack()
                 )
                 keyboard.inline_keyboard.append([button])
 
@@ -1338,12 +1338,12 @@ def setup_handlers(dp: Dispatcher):
             if account.enabled:
                 toggle_button = InlineKeyboardButton(
                     text="❌ Отключить аккаунт",
-                    callback_data=AccountToggleCallback(account_id=account.id, action="disable").pack()
+                    callback_data=AccountToggleCallback(account_id=account.account_id, action="disable").pack()
                 )
             else:
                 toggle_button = InlineKeyboardButton(
                     text="✅ Включить аккаунт",
-                    callback_data=AccountToggleCallback(account_id=account.id, action="enable").pack()
+                    callback_data=AccountToggleCallback(account_id=account.account_id, action="enable").pack()
                 )
 
             keyboard.inline_keyboard.append([toggle_button])
@@ -1353,21 +1353,21 @@ def setup_handlers(dp: Dispatcher):
                 # Показываем кнопку отвязки
                 unlink_button = InlineKeyboardButton(
                     text="🔓 Отвязать от пользователя",
-                    callback_data=AccountLinkCallback(account_id=account.id, action="unlink").pack()
+                    callback_data=AccountLinkCallback(account_id=account.account_id, action="unlink").pack()
                 )
                 keyboard.inline_keyboard.append([unlink_button])
             else:
                 # Показываем кнопку привязки
                 link_button = InlineKeyboardButton(
                     text="👤 Привязать к пользователю",
-                    callback_data=AccountLinkCallback(account_id=account.id, action="show_users").pack()
+                    callback_data=AccountLinkCallback(account_id=account.account_id, action="show_users").pack()
                 )
                 keyboard.inline_keyboard.append([link_button])
 
             # Кнопка "Удалить аккаунт"
             delete_button = InlineKeyboardButton(
                 text="🗑️ Удалить аккаунт",
-                callback_data=AccountDeleteCallback(account_id=account.id, action="confirm").pack()
+                callback_data=AccountDeleteCallback(account_id=account.account_id, action="confirm").pack()
             )
             keyboard.inline_keyboard.append([delete_button])
 
@@ -1621,34 +1621,34 @@ def setup_handlers(dp: Dispatcher):
             await query.answer("❌ Только для администраторов", show_alert=True)
             return
 
-        import json
-        import os
+        async with AsyncSessionLocal() as session:
+            from shared.models.gmail_account import GmailAccount
 
-        accounts_config_path = "bot/gmail_accounts.json"
+            # Получаем все аккаунты из БД
+            stmt = select(GmailAccount).order_by(GmailAccount.name)
+            result = await session.execute(stmt)
+            accounts = result.scalars().all()
 
-        with open(accounts_config_path, 'r', encoding='utf-8') as f:
-            accounts = json.load(f)
+            # Создаем клавиатуру с аккаунтами
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
-        # Создаем клавиатуру с аккаунтами
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+            for account in accounts:
+                status_emoji = "✅" if account.enabled else "❌"
+                button_text = f"{status_emoji} {account.name}"
 
-        for account in accounts:
-            status_emoji = "✅" if account.get('enabled', True) else "❌"
-            button_text = f"{status_emoji} {account.get('name', account['id'])}"
+                button = InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=AccountCallback(account_id=account.account_id).pack()
+                )
+                keyboard.inline_keyboard.append([button])
 
-            button = InlineKeyboardButton(
-                text=button_text,
-                callback_data=AccountCallback(account_id=account['id']).pack()
-            )
-            keyboard.inline_keyboard.append([button])
+            text = "📧 <b>Gmail аккаунты</b>\n\n"
+            text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
+            enabled_count = sum(1 for acc in accounts if acc.enabled)
+            text += f"Активных: <b>{enabled_count}</b>\n\n"
+            text += "Выберите аккаунт для просмотра деталей:"
 
-        text = "📧 <b>Gmail аккаунты</b>\n\n"
-        text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
-        enabled_count = sum(1 for acc in accounts if acc.get('enabled', True))
-        text += f"Активных: <b>{enabled_count}</b>\n\n"
-        text += "Выберите аккаунт для просмотра деталей:"
-
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     # Словарь для хранения состояния авторизации пользователей
     user_auth_states = {}
