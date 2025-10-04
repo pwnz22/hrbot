@@ -68,6 +68,10 @@ class AccountLinkCallback(CallbackData, prefix="account_link"):
     action: str  # "show_users", "link", "unlink"
     user_id: int = 0
 
+class AccountDeleteCallback(CallbackData, prefix="account_delete"):
+    account_id: str
+    action: str  # "confirm", "execute"
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -1364,14 +1368,21 @@ def setup_handlers(dp: Dispatcher):
                 )
                 keyboard.inline_keyboard.append([link_button])
 
-        # Кнопка "Назад"
-        back_button = InlineKeyboardButton(
-            text="⬅️ Назад к списку",
-            callback_data="back_to_accounts"
-        )
-        keyboard.inline_keyboard.append([back_button])
+            # Кнопка "Удалить аккаунт"
+            delete_button = InlineKeyboardButton(
+                text="🗑️ Удалить аккаунт",
+                callback_data=AccountDeleteCallback(account_id=account.id, action="confirm").pack()
+            )
+            keyboard.inline_keyboard.append([delete_button])
 
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            # Кнопка "Назад"
+            back_button = InlineKeyboardButton(
+                text="⬅️ Назад к списку",
+                callback_data="back_to_accounts"
+            )
+            keyboard.inline_keyboard.append([back_button])
+
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(AccountLinkCallback.filter())
     async def account_link_handler(query: CallbackQuery, callback_data: AccountLinkCallback, user: TelegramUser) -> None:
@@ -1489,6 +1500,81 @@ def setup_handlers(dp: Dispatcher):
                 await asyncio.sleep(2)
                 account_callback = AccountCallback(account_id=callback_data.account_id)
                 await account_details_handler(query, account_callback)
+
+    @dp.callback_query(AccountDeleteCallback.filter())
+    async def account_delete_handler(query: CallbackQuery, callback_data: AccountDeleteCallback, user: TelegramUser) -> None:
+        """Обработчик удаления аккаунта"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
+
+        if callback_data.action == "confirm":
+            # Показываем подтверждение удаления
+            async with AsyncSessionLocal() as session:
+                from shared.models.gmail_account import GmailAccount
+
+                account = await session.get(GmailAccount, callback_data.account_id)
+                if not account:
+                    await query.message.edit_text("❌ Аккаунт не найден")
+                    return
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Да, удалить",
+                            callback_data=AccountDeleteCallback(account_id=callback_data.account_id, action="execute").pack()
+                        ),
+                        InlineKeyboardButton(
+                            text="❌ Отмена",
+                            callback_data=AccountCallback(account_id=callback_data.account_id).pack()
+                        )
+                    ]
+                ])
+
+                text = f"⚠️ <b>Подтверждение удаления</b>\n\n"
+                text += f"Вы действительно хотите удалить аккаунт?\n\n"
+                text += f"📧 <b>{account.name}</b>\n"
+                text += f"🆔 <code>{account.id}</code>\n\n"
+                text += f"❗ <b>Внимание:</b> Все вакансии и отклики, связанные с этим аккаунтом, останутся в базе, но потеряют связь с аккаунтом."
+
+                await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+        elif callback_data.action == "execute":
+            # Удаляем аккаунт
+            async with AsyncSessionLocal() as session:
+                from shared.models.gmail_account import GmailAccount
+
+                account = await session.get(GmailAccount, callback_data.account_id)
+                if not account:
+                    await query.message.edit_text("❌ Аккаунт не найден")
+                    return
+
+                account_name = account.name
+
+                # Удаляем из БД
+                await session.delete(account)
+                await session.commit()
+
+                await query.message.edit_text(
+                    f"✅ Аккаунт <b>{account_name}</b> успешно удален",
+                    parse_mode="HTML"
+                )
+
+                # Возвращаемся к списку через 2 секунды
+                import asyncio
+                await asyncio.sleep(2)
+
+                # Эмулируем нажатие кнопки "Назад к списку"
+                from aiogram.types import Message as TgMessage
+                fake_message = TgMessage(
+                    message_id=query.message.message_id,
+                    date=query.message.date,
+                    chat=query.message.chat,
+                    from_user=query.from_user
+                )
+                await accounts_handler(fake_message, user)
 
     @dp.callback_query(AccountToggleCallback.filter())
     async def account_toggle_handler(query: CallbackQuery, callback_data: AccountToggleCallback, user: TelegramUser) -> None:
