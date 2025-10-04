@@ -65,7 +65,7 @@ class UserRoleCallback(CallbackData, prefix="user_role"):
 
 class AccountLinkCallback(CallbackData, prefix="account_link"):
     account_id: str
-    action: str  # "show_users", "link"
+    action: str  # "show_users", "link", "unlink"
     user_id: int = 0
 
 async def delete_message_after_delay(message, delay_seconds):
@@ -1302,60 +1302,71 @@ def setup_handlers(dp: Dispatcher):
             await query.answer("❌ Только для администраторов", show_alert=True)
             return
 
-        import json
-        import os
+        async with AsyncSessionLocal() as session:
+            from shared.models.gmail_account import GmailAccount
+            from sqlalchemy.orm import selectinload
 
-        accounts_config_path = "bot/gmail_accounts.json"
-
-        with open(accounts_config_path, 'r', encoding='utf-8') as f:
-            accounts = json.load(f)
-
-        # Находим аккаунт
-        account = None
-        for acc in accounts:
-            if acc['id'] == callback_data.account_id:
-                account = acc
-                break
-
-        if not account:
-            await query.message.edit_text("❌ Аккаунт не найден")
-            return
-
-        # Формируем детальную информацию
-        is_enabled = account.get('enabled', True)
-        status_emoji = "✅" if is_enabled else "❌"
-        status_text = "Активен" if is_enabled else "Отключен"
-
-        text = f"📧 <b>{account.get('name', account['id'])}</b>\n\n"
-        text += f"🆔 <b>ID:</b> <code>{account['id']}</code>\n"
-        text += f"🏷️ <b>Статус:</b> {status_emoji} {status_text}\n\n"
-
-        text += f"📂 <b>Файлы:</b>\n"
-        text += f"   • Credentials: <code>{account.get('credentials_path', 'Не указано')}</code>\n"
-        text += f"   • Token: <code>{account.get('token_path', 'Не указано')}</code>\n"
-
-        # Создаем кнопки управления
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-
-        if is_enabled:
-            toggle_button = InlineKeyboardButton(
-                text="❌ Отключить аккаунт",
-                callback_data=AccountToggleCallback(account_id=account['id'], action="disable").pack()
+            # Получаем аккаунт из БД
+            stmt = select(GmailAccount).options(selectinload(GmailAccount.user)).where(
+                GmailAccount.id == callback_data.account_id
             )
-        else:
-            toggle_button = InlineKeyboardButton(
-                text="✅ Включить аккаунт",
-                callback_data=AccountToggleCallback(account_id=account['id'], action="enable").pack()
-            )
+            result = await session.execute(stmt)
+            account = result.scalar_one_or_none()
 
-        keyboard.inline_keyboard.append([toggle_button])
+            if not account:
+                await query.message.edit_text("❌ Аккаунт не найден")
+                return
 
-        # Кнопка "Привязать к пользователю"
-        link_button = InlineKeyboardButton(
-            text="👤 Привязать к пользователю",
-            callback_data=AccountLinkCallback(account_id=account['id'], action="show_users").pack()
-        )
-        keyboard.inline_keyboard.append([link_button])
+            # Формируем детальную информацию
+            status_emoji = "✅" if account.enabled else "❌"
+            status_text = "Активен" if account.enabled else "Отключен"
+
+            text = f"📧 <b>{account.name}</b>\n\n"
+            text += f"🆔 <b>ID:</b> <code>{account.id}</code>\n"
+            text += f"🏷️ <b>Статус:</b> {status_emoji} {status_text}\n"
+
+            # Показываем привязанного пользователя
+            if account.user:
+                role_emoji = "👑" if account.user.is_admin else ("👨‍💼" if account.user.is_moderator else "👤")
+                text += f"👤 <b>Привязан к:</b> {role_emoji} {account.user.first_name or account.user.username or f'ID: {account.user.telegram_id}'}\n"
+            else:
+                text += f"👤 <b>Привязка:</b> Не привязан\n"
+
+            text += f"\n📂 <b>Файлы:</b>\n"
+            text += f"   • Credentials: <code>{account.credentials_path}</code>\n"
+            text += f"   • Token: <code>{account.token_path}</code>\n"
+
+            # Создаем кнопки управления
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            if account.enabled:
+                toggle_button = InlineKeyboardButton(
+                    text="❌ Отключить аккаунт",
+                    callback_data=AccountToggleCallback(account_id=account.id, action="disable").pack()
+                )
+            else:
+                toggle_button = InlineKeyboardButton(
+                    text="✅ Включить аккаунт",
+                    callback_data=AccountToggleCallback(account_id=account.id, action="enable").pack()
+                )
+
+            keyboard.inline_keyboard.append([toggle_button])
+
+            # Кнопка "Привязать" или "Отвязать"
+            if account.user:
+                # Показываем кнопку отвязки
+                unlink_button = InlineKeyboardButton(
+                    text="🔓 Отвязать от пользователя",
+                    callback_data=AccountLinkCallback(account_id=account.id, action="unlink").pack()
+                )
+                keyboard.inline_keyboard.append([unlink_button])
+            else:
+                # Показываем кнопку привязки
+                link_button = InlineKeyboardButton(
+                    text="👤 Привязать к пользователю",
+                    callback_data=AccountLinkCallback(account_id=account.id, action="show_users").pack()
+                )
+                keyboard.inline_keyboard.append([link_button])
 
         # Кнопка "Назад"
         back_button = InlineKeyboardButton(
@@ -1412,6 +1423,28 @@ def setup_handlers(dp: Dispatcher):
                 keyboard.inline_keyboard.append([back_button])
 
                 await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+        elif callback_data.action == "unlink":
+            # Отвязываем аккаунт от пользователя
+            async with AsyncSessionLocal() as session:
+                from shared.models.gmail_account import GmailAccount
+
+                gmail_account = await session.get(GmailAccount, callback_data.account_id)
+                if not gmail_account:
+                    await query.message.edit_text("❌ Аккаунт не найден")
+                    return
+
+                # Отвязываем
+                gmail_account.user_id = None
+                await session.commit()
+
+                await query.answer("✅ Аккаунт отвязан от пользователя", show_alert=True)
+
+                # Возвращаемся к деталям аккаунта
+                from bot.handlers import AccountCallback
+                # Эмулируем callback для показа обновленных деталей
+                updated_callback = AccountCallback(account_id=callback_data.account_id)
+                await account_details_handler(query, updated_callback, user)
 
         elif callback_data.action == "link":
             # Привязываем аккаунт к пользователю
