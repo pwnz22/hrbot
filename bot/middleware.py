@@ -67,7 +67,7 @@ def has_permission(permission: str):
             ...
     """
     def decorator(handler):
-        async def wrapper(event: Message | CallbackQuery, *args, user: TelegramUser = None, **kwargs):
+        async def wrapper(event: Message | CallbackQuery, user: TelegramUser = None, **kwargs):
             if not user:
                 if isinstance(event, Message):
                     await event.answer("❌ Ошибка авторизации")
@@ -82,7 +82,9 @@ def has_permission(permission: str):
                     await event.answer("❌ У вас нет прав для выполнения этого действия", show_alert=True)
                 return
 
-            return await handler(event, *args, user=user, **kwargs)
+            # Передаем только нужные параметры
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k == 'callback_data'}
+            return await handler(event, user=user, **filtered_kwargs)
 
         return wrapper
     return decorator
@@ -98,7 +100,7 @@ def admin_only(handler):
         async def accounts_handler(message: Message, user: TelegramUser):
             ...
     """
-    async def wrapper(event: Message | CallbackQuery, *args, user: TelegramUser = None, **kwargs):
+    async def wrapper(event: Message | CallbackQuery, user: TelegramUser = None, **kwargs):
         if not user or not user.is_admin:
             if isinstance(event, Message):
                 await event.answer("❌ Эта команда доступна только администраторам")
@@ -106,7 +108,9 @@ def admin_only(handler):
                 await event.answer("❌ Это действие доступно только администраторам", show_alert=True)
             return
 
-        return await handler(event, *args, user=user, **kwargs)
+        # Передаем только нужные параметры
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k == 'callback_data'}
+        return await handler(event, user=user, **filtered_kwargs)
 
     return wrapper
 
@@ -121,7 +125,7 @@ def moderator_or_admin(handler):
         async def recent_handler(message: Message, user: TelegramUser):
             ...
     """
-    async def wrapper(event: Message | CallbackQuery, *args, user: TelegramUser = None, **kwargs):
+    async def wrapper(event: Message | CallbackQuery, user: TelegramUser = None, **kwargs):
         if not user or (not user.is_moderator and not user.is_admin):
             if isinstance(event, Message):
                 await event.answer("❌ Эта команда доступна только модераторам и администраторам")
@@ -129,6 +133,8 @@ def moderator_or_admin(handler):
                 await event.answer("❌ Это действие доступно только модераторам и администраторам", show_alert=True)
             return
 
-        return await handler(event, *args, user=user, **kwargs)
+        # Передаем только нужные параметры
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k == 'callback_data'}
+        return await handler(event, user=user, **filtered_kwargs)
 
     return wrapper
