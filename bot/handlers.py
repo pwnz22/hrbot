@@ -192,13 +192,13 @@ def setup_handlers(dp: Dispatcher):
         async with AsyncSessionLocal() as session:
             # Получаем список вакансий с фильтрацией по пользователю
             if user.is_admin:
-                # Админ видит все вакансии
+                # Админ видит все вакансии (включая те, где gmail_account_id = NULL)
                 stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
             else:
                 # Модератор видит только вакансии привязанных к нему аккаунтов
                 from shared.models.gmail_account import GmailAccount
                 stmt = select(Vacancy).join(
-                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id
+                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id, isouter=False
                 ).where(
                     GmailAccount.user_id == user.id
                 ).order_by(desc(Vacancy.created_at))
@@ -298,9 +298,28 @@ def setup_handlers(dp: Dispatcher):
     @moderator_or_admin
     async def unprocessed_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
-            # Получаем все необработанные отклики с вакансиями (исключаем удаленные)
+            # Получаем все необработанные отклики с фильтрацией по пользователю
             from sqlalchemy.orm import selectinload
-            stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
+
+            if user.is_admin:
+                # Админ видит все необработанные отклики
+                stmt = select(Application).options(selectinload(Application.vacancy)).where(
+                    Application.is_processed == False,
+                    Application.deleted_at.is_(None)
+                ).order_by(desc(Application.created_at))
+            else:
+                # Модератор видит только отклики из привязанных к нему аккаунтов
+                from shared.models.gmail_account import GmailAccount
+                stmt = select(Application).options(selectinload(Application.vacancy)).join(
+                    Vacancy, Application.vacancy_id == Vacancy.id
+                ).join(
+                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id
+                ).where(
+                    Application.is_processed == False,
+                    Application.deleted_at.is_(None),
+                    GmailAccount.user_id == user.id
+                ).order_by(desc(Application.created_at))
+
             result = await session.execute(stmt)
             unprocessed_applications = result.scalars().all()
 
