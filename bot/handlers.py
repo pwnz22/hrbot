@@ -169,22 +169,79 @@ def setup_handlers(dp: Dispatcher):
     @moderator_or_admin
     async def stats_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
-            from sqlalchemy import text
-            total = await session.execute(text("SELECT COUNT(*) FROM applications WHERE deleted_at IS NULL"))
-            total_count = total.scalar()
+            from sqlalchemy import func, case
+            from shared.models.gmail_account import GmailAccount
 
-            processed = await session.execute(text("SELECT COUNT(*) FROM applications WHERE is_processed = true AND deleted_at IS NULL"))
-            processed_count = processed.scalar()
+            # Получаем аккаунты в зависимости от роли
+            if user.is_admin:
+                accounts_stmt = select(GmailAccount).where(GmailAccount.enabled == True)
+            else:
+                accounts_stmt = select(GmailAccount).where(
+                    GmailAccount.enabled == True,
+                    GmailAccount.user_id == user.id
+                )
 
-            unprocessed = total_count - processed_count
+            accounts_result = await session.execute(accounts_stmt)
+            accounts = accounts_result.scalars().all()
 
-            await message.answer(
-                f"📊 Статистика:\n"
-                f"Всего откликов: <b>{total_count}</b>\n"
-                f"Обработано: <b>{processed_count}</b>\n"
-                f"Не обработано: <b>{unprocessed}</b>",
-                parse_mode="HTML"
-            )
+            if not accounts:
+                await message.answer("❌ Нет доступных аккаунтов для статистики")
+                return
+
+            text = "📊 <b>Статистика по аккаунтам:</b>\n\n"
+
+            total_vacancies = 0
+            total_applications = 0
+            total_processed = 0
+            total_unprocessed = 0
+
+            for account in accounts:
+                # Статистика по вакансиям для этого аккаунта
+                vacancies_count_stmt = select(func.count(Vacancy.id)).where(
+                    Vacancy.gmail_account_id == account.id
+                )
+                vacancies_count = await session.scalar(vacancies_count_stmt)
+
+                # Статистика по откликам для этого аккаунта
+                applications_stmt = select(
+                    func.count(Application.id).label('total'),
+                    func.sum(case((Application.is_processed == True, 1), else_=0)).label('processed'),
+                    func.sum(case((Application.is_processed == False, 1), else_=0)).label('unprocessed')
+                ).select_from(Application).join(
+                    Vacancy, Application.vacancy_id == Vacancy.id
+                ).where(
+                    Vacancy.gmail_account_id == account.id,
+                    Application.deleted_at.is_(None)
+                )
+
+                result = await session.execute(applications_stmt)
+                stats = result.one()
+
+                apps_total = stats.total or 0
+                apps_processed = stats.processed or 0
+                apps_unprocessed = stats.unprocessed or 0
+
+                total_vacancies += vacancies_count
+                total_applications += apps_total
+                total_processed += apps_processed
+                total_unprocessed += apps_unprocessed
+
+                text += f"📧 <b>{account.name}</b>\n"
+                text += f"   📋 Вакансий: {vacancies_count}\n"
+                text += f"   👥 Откликов: {apps_total}\n"
+                text += f"   ✅ Обработано: {apps_processed}\n"
+                text += f"   ❌ Не обработано: {apps_unprocessed}\n\n"
+
+            # Общая статистика
+            text += f"━━━━━━━━━━━━━━━━━━━━\n"
+            text += f"📊 <b>Итого:</b>\n"
+            text += f"📧 Аккаунтов: <b>{len(accounts)}</b>\n"
+            text += f"📋 Вакансий: <b>{total_vacancies}</b>\n"
+            text += f"👥 Откликов: <b>{total_applications}</b>\n"
+            text += f"✅ Обработано: <b>{total_processed}</b>\n"
+            text += f"❌ Не обработано: <b>{total_unprocessed}</b>"
+
+            await message.answer(text, parse_mode="HTML")
 
     @dp.message(Command("recent"))
     @moderator_or_admin
