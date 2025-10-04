@@ -24,8 +24,6 @@ services:
       - ./gmail_tokens:/app/gmail_tokens
       # Конфигурация Gmail аккаунтов
       - ./bot/gmail_accounts.json:/app/bot/gmail_accounts.json
-    depends_on:
-      - api
     networks:
       - hrbot-network
 
