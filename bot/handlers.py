@@ -10,7 +10,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.database.database import AsyncSessionLocal
 from shared.models.vacancy import Application, Vacancy
+from shared.models.user import TelegramUser, RoleEnum
 from shared.services.resume_summary_service import ResumeSummaryService
+from bot.middleware import moderator_or_admin, admin_only
 
 # Словарь для хранения ID сообщений с файлами резюме для каждого пользователя
 user_resume_messages = {}
@@ -50,6 +52,13 @@ class AccountToggleCallback(CallbackData, prefix="account_toggle"):
     account_id: str
     action: str  # "enable" или "disable"
 
+class UserCallback(CallbackData, prefix="user"):
+    user_id: int
+
+class UserRoleCallback(CallbackData, prefix="user_role"):
+    user_id: int
+    role: str  # "user", "moderator", "admin"
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -78,34 +87,78 @@ def clean_html_tags(text):
 def setup_handlers(dp: Dispatcher):
 
     @dp.message(CommandStart())
-    async def command_start_handler(message: Message) -> None:
+    async def command_start_handler(message: Message, user: TelegramUser) -> None:
         from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-        # Создаем клавиатуру с командами
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
-                [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
-                [KeyboardButton(text="/accounts"), KeyboardButton(text="/add_account")],
-                [KeyboardButton(text="/export")]
-            ],
-            resize_keyboard=True
-        )
+        # Формируем клавиатуру и текст в зависимости от роли
+        if user.is_admin:
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
+                    [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
+                    [KeyboardButton(text="/accounts"), KeyboardButton(text="/add_account")],
+                    [KeyboardButton(text="/export"), KeyboardButton(text="/users")]
+                ],
+                resize_keyboard=True
+            )
 
-        await message.answer("Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
-                           "Команды:\n"
-                           "/start - Это сообщение\n"
-                           "/stats - Статистика по откликам\n"
-                           "/recent - Последние отклики\n"
-                           "/unprocessed - Все необработанные отклики\n"
-                           "/parse - Парсить новые письма\n"
-                           "/export - Экспорт откликов в Excel\n"
-                           "/accounts - Управление Gmail аккаунтами\n"
-                           "/add_account - Добавить новый Gmail аккаунт",
-                           reply_markup=keyboard)
+            help_text = (
+                "Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
+                f"👤 Ваша роль: <b>Администратор</b>\n\n"
+                "<b>Команды:</b>\n"
+                "/start - Это сообщение\n"
+                "/stats - Статистика по откликам\n"
+                "/recent - Последние отклики\n"
+                "/unprocessed - Все необработанные отклики\n"
+                "/parse - Парсить новые письма\n"
+                "/export - Экспорт откликов в Excel\n"
+                "/accounts - Управление Gmail аккаунтами\n"
+                "/add_account - Добавить новый Gmail аккаунт\n"
+                "/users - Управление пользователями"
+            )
+
+        elif user.is_moderator:
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
+                    [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
+                    [KeyboardButton(text="/export")]
+                ],
+                resize_keyboard=True
+            )
+
+            help_text = (
+                "Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
+                f"👤 Ваша роль: <b>Модератор</b>\n\n"
+                "<b>Команды:</b>\n"
+                "/start - Это сообщение\n"
+                "/stats - Статистика по откликам\n"
+                "/recent - Последние отклики\n"
+                "/unprocessed - Все необработанные отклики\n"
+                "/parse - Парсить новые письма\n"
+                "/export - Экспорт откликов в Excel"
+            )
+
+        else:  # USER
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="/start")]
+                ],
+                resize_keyboard=True
+            )
+
+            help_text = (
+                "Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
+                f"👤 Ваша роль: <b>Пользователь</b>\n\n"
+                "У вас нет прав для работы с ботом.\n"
+                "Обратитесь к администратору для получения доступа."
+            )
+
+        await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.message(Command("stats"))
-    async def stats_handler(message: Message) -> None:
+    @moderator_or_admin
+    async def stats_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
             from sqlalchemy import text
             total = await session.execute(text("SELECT COUNT(*) FROM applications WHERE deleted_at IS NULL"))
@@ -125,7 +178,8 @@ def setup_handlers(dp: Dispatcher):
             )
 
     @dp.message(Command("recent"))
-    async def recent_handler(message: Message) -> None:
+    @moderator_or_admin
+    async def recent_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
             # Получаем список вакансий с количеством откликов
             stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
@@ -155,7 +209,8 @@ def setup_handlers(dp: Dispatcher):
             await message.answer("📋 Выберите вакансию для просмотра откликов:", reply_markup=keyboard)
 
     @dp.message(Command("parse"))
-    async def parse_handler(message: Message) -> None:
+    @moderator_or_admin
+    async def parse_handler(message: Message, user: TelegramUser) -> None:
         status_msg = await message.answer("🔄 Начинаю парсинг новых писем из всех аккаунтов...")
 
         try:
@@ -220,7 +275,8 @@ def setup_handlers(dp: Dispatcher):
             asyncio.create_task(delete_message_after_delay(message, 2))
 
     @dp.message(Command("unprocessed"))
-    async def unprocessed_handler(message: Message) -> None:
+    @moderator_or_admin
+    async def unprocessed_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
             # Получаем все необработанные отклики с вакансиями (исключаем удаленные)
             from sqlalchemy.orm import selectinload
@@ -753,7 +809,8 @@ def setup_handlers(dp: Dispatcher):
                 await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.message(Command("export"))
-    async def export_handler(message: Message) -> None:
+    @moderator_or_admin
+    async def export_handler(message: Message, user: TelegramUser) -> None:
         status_msg = await message.answer("📊 Создаю Excel файл с откликами...")
 
         try:
@@ -979,7 +1036,8 @@ def setup_handlers(dp: Dispatcher):
                     await query.message.answer("❌ Файл резюме не найден")
 
     @dp.message(Command("accounts"))
-    async def accounts_handler(message: Message) -> None:
+    @admin_only
+    async def accounts_handler(message: Message, user: TelegramUser) -> None:
         """Показывает список всех Gmail аккаунтов"""
         import json
         import os
@@ -1163,7 +1221,8 @@ def setup_handlers(dp: Dispatcher):
     user_auth_states = {}
 
     @dp.message(Command("add_account"))
-    async def add_account_command_handler(message: Message) -> None:
+    @admin_only
+    async def add_account_command_handler(message: Message, user: TelegramUser) -> None:
         """Добавляет новый Gmail аккаунт через OAuth"""
         from bot.gmail_account_manager import GmailAccountManager
 
@@ -1261,6 +1320,210 @@ def setup_handlers(dp: Dispatcher):
             # Удаляем сообщение с кодом
             import asyncio
             asyncio.create_task(delete_message_after_delay(message, 1))
+
+    @dp.message(Command("users"))
+    @admin_only
+    async def users_handler(message: Message, user: TelegramUser) -> None:
+        """Показывает список всех пользователей бота"""
+        async with AsyncSessionLocal() as session:
+            stmt = select(TelegramUser).order_by(TelegramUser.created_at.desc())
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            if not users:
+                await message.answer("📭 Нет пользователей")
+                return
+
+            # Создаем клавиатуру с пользователями
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            for u in users:
+                role_emoji = {
+                    RoleEnum.USER: "👤",
+                    RoleEnum.MODERATOR: "👨‍💼",
+                    RoleEnum.ADMIN: "👑"
+                }.get(u.role, "👤")
+
+                button_text = f"{role_emoji} {u.first_name or 'Unknown'}"
+                if u.username:
+                    button_text += f" (@{u.username})"
+
+                button = InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=UserCallback(user_id=u.id).pack()
+                )
+                keyboard.inline_keyboard.append([button])
+
+            text = "👥 <b>Пользователи бота</b>\n\n"
+            text += f"Всего: <b>{len(users)}</b>\n\n"
+            text += "Выберите пользователя для управления:"
+
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.callback_query(UserCallback.filter())
+    async def user_details_handler(query: CallbackQuery, callback_data: UserCallback, user: TelegramUser) -> None:
+        """Показывает детали пользователя"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Недостаточно прав", show_alert=True)
+            return
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(TelegramUser).where(TelegramUser.id == callback_data.user_id)
+            result = await session.execute(stmt)
+            selected_user = result.scalar_one_or_none()
+
+            if not selected_user:
+                await query.message.edit_text("❌ Пользователь не найден")
+                return
+
+            role_emoji = {
+                RoleEnum.USER: "👤",
+                RoleEnum.MODERATOR: "👨‍💼",
+                RoleEnum.ADMIN: "👑"
+            }.get(selected_user.role, "👤")
+
+            role_name = {
+                RoleEnum.USER: "Пользователь",
+                RoleEnum.MODERATOR: "Модератор",
+                RoleEnum.ADMIN: "Администратор"
+            }.get(selected_user.role, "Пользователь")
+
+            text = f"{role_emoji} <b>{selected_user.first_name or 'Unknown'}</b>\n\n"
+            if selected_user.username:
+                text += f"🆔 @{selected_user.username}\n"
+            text += f"🔢 Telegram ID: <code>{selected_user.telegram_id}</code>\n"
+            text += f"🏷️ Роль: <b>{role_name}</b>\n"
+            text += f"📅 Регистрация: {selected_user.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+
+            # Кнопки для изменения роли
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            if selected_user.role != RoleEnum.ADMIN:
+                admin_button = InlineKeyboardButton(
+                    text="👑 Сделать администратором",
+                    callback_data=UserRoleCallback(user_id=selected_user.id, role="admin").pack()
+                )
+                keyboard.inline_keyboard.append([admin_button])
+
+            if selected_user.role != RoleEnum.MODERATOR:
+                mod_button = InlineKeyboardButton(
+                    text="👨‍💼 Сделать модератором",
+                    callback_data=UserRoleCallback(user_id=selected_user.id, role="moderator").pack()
+                )
+                keyboard.inline_keyboard.append([mod_button])
+
+            if selected_user.role != RoleEnum.USER:
+                user_button = InlineKeyboardButton(
+                    text="👤 Сделать пользователем",
+                    callback_data=UserRoleCallback(user_id=selected_user.id, role="user").pack()
+                )
+                keyboard.inline_keyboard.append([user_button])
+
+            # Кнопка "Назад"
+            back_button = InlineKeyboardButton(
+                text="⬅️ Назад к списку",
+                callback_data="back_to_users"
+            )
+            keyboard.inline_keyboard.append([back_button])
+
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    @dp.callback_query(UserRoleCallback.filter())
+    async def user_role_change_handler(query: CallbackQuery, callback_data: UserRoleCallback, user: TelegramUser) -> None:
+        """Изменяет роль пользователя"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Недостаточно прав", show_alert=True)
+            return
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(TelegramUser).where(TelegramUser.id == callback_data.user_id)
+            result = await session.execute(stmt)
+            selected_user = result.scalar_one_or_none()
+
+            if not selected_user:
+                await query.message.answer("❌ Пользователь не найден")
+                return
+
+            # Запрещаем себя понижать, если это единственный админ
+            if user.id == selected_user.id and user.is_admin:
+                # Проверяем, есть ли другие админы
+                admin_count_stmt = select(TelegramUser).where(TelegramUser.role == RoleEnum.ADMIN)
+                admin_result = await session.execute(admin_count_stmt)
+                admins = admin_result.scalars().all()
+
+                if len(admins) <= 1 and callback_data.role != "admin":
+                    await query.answer("❌ Нельзя изменить роль последнего администратора", show_alert=True)
+                    return
+
+            # Изменяем роль
+            old_role = selected_user.role
+            new_role = RoleEnum[callback_data.role.upper()]
+            selected_user.role = new_role
+            await session.commit()
+
+            role_name = {
+                RoleEnum.USER: "Пользователь",
+                RoleEnum.MODERATOR: "Модератор",
+                RoleEnum.ADMIN: "Администратор"
+            }.get(new_role, "Пользователь")
+
+            # Показываем уведомление
+            notification = await query.message.answer(
+                f"✅ Роль изменена на <b>{role_name}</b>",
+                parse_mode="HTML"
+            )
+
+            # Обновляем детали пользователя
+            user_callback = UserCallback(user_id=selected_user.id)
+            await user_details_handler(query, user_callback, user)
+
+            # Удаляем уведомление через 2 секунды
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(notification, 2))
+
+    @dp.callback_query(lambda c: c.data == "back_to_users")
+    async def back_to_users_handler(query: CallbackQuery, user: TelegramUser) -> None:
+        """Возвращается к списку пользователей"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Недостаточно прав", show_alert=True)
+            return
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(TelegramUser).order_by(TelegramUser.created_at.desc())
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            # Создаем клавиатуру с пользователями
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            for u in users:
+                role_emoji = {
+                    RoleEnum.USER: "👤",
+                    RoleEnum.MODERATOR: "👨‍💼",
+                    RoleEnum.ADMIN: "👑"
+                }.get(u.role, "👤")
+
+                button_text = f"{role_emoji} {u.first_name or 'Unknown'}"
+                if u.username:
+                    button_text += f" (@{u.username})"
+
+                button = InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=UserCallback(user_id=u.id).pack()
+                )
+                keyboard.inline_keyboard.append([button])
+
+            text = "👥 <b>Пользователи бота</b>\n\n"
+            text += f"Всего: <b>{len(users)}</b>\n\n"
+            text += "Выберите пользователя для управления:"
+
+            await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.message(Command("cancel"))
     async def cancel_handler(message: Message) -> None:

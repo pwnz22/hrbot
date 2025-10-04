@@ -14,6 +14,7 @@ from bot.handlers import setup_handlers
 from bot.scheduler import GmailScheduler
 from shared.database.database import async_engine
 from shared.models.vacancy import Base
+from shared.models.user import TelegramUser
 
 load_dotenv()
 
@@ -31,16 +32,13 @@ async def main():
     bot = Bot(TOKEN)
     dp = Dispatcher()
 
-    # Устанавливаем команды в меню
-    commands = [
-        BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="stats", description="Статистика по откликам"),
-        BotCommand(command="recent", description="Последние отклики"),
-        BotCommand(command="unprocessed", description="Все необработанные отклики"),
-        BotCommand(command="parse", description="Парсить новые письма"),
-        BotCommand(command="export", description="Экспорт откликов в Excel")
-    ]
-    await bot.set_my_commands(commands)
+    # Регистрируем middleware для проверки ролей
+    from bot.middleware import RoleCheckMiddleware
+    dp.message.middleware(RoleCheckMiddleware())
+    dp.callback_query.middleware(RoleCheckMiddleware())
+
+    # Команды будут устанавливаться динамически в зависимости от роли пользователя
+    # в обработчике /start
 
     setup_handlers(dp)
 
