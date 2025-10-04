@@ -20,9 +20,10 @@ services:
       - ./exports:/app/exports
       # Логи
       - ./logs:/app/logs
-      # Gmail credentials (важно!)
-      - ./credentials.json:/app/credentials.json:ro
-      - ./token.json:/app/token.json
+      # Gmail credentials и tokens (важно!)
+      - ./gmail_tokens:/app/gmail_tokens
+      # Конфигурация Gmail аккаунтов
+      - ./bot/gmail_accounts.json:/app/bot/gmail_accounts.json
     depends_on:
       - api
     networks:
@@ -67,9 +68,3 @@ services:
 networks:
   hrbot-network:
     driver: bridge
-
-volumes:
-  # Можно использовать named volumes вместо bind mounts
-  # db-data:
-  # downloads-data:
-  # exports-data:
