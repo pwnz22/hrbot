@@ -107,10 +107,10 @@ def setup_handlers(dp: Dispatcher):
         if user.is_admin:
             keyboard = ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
-                    [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
-                    [KeyboardButton(text="/accounts"), KeyboardButton(text="/add_account")],
-                    [KeyboardButton(text="/export"), KeyboardButton(text="/users")]
+                    [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
+                    [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
+                    [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="➕ Добавить аккаунт")],
+                    [KeyboardButton(text="📥 Экспорт"), KeyboardButton(text="👥 Пользователи")]
                 ],
                 resize_keyboard=True
             )
@@ -133,9 +133,9 @@ def setup_handlers(dp: Dispatcher):
         elif user.is_moderator:
             keyboard = ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="/recent"), KeyboardButton(text="/unprocessed")],
-                    [KeyboardButton(text="/parse"), KeyboardButton(text="/stats")],
-                    [KeyboardButton(text="/export")]
+                    [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
+                    [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
+                    [KeyboardButton(text="📥 Экспорт")]
                 ],
                 resize_keyboard=True
             )
@@ -155,7 +155,7 @@ def setup_handlers(dp: Dispatcher):
         else:  # USER
             keyboard = ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="/start")]
+                    [KeyboardButton(text="🏠 Главная")]
                 ],
                 resize_keyboard=True
             )
@@ -1967,3 +1967,40 @@ def setup_handlers(dp: Dispatcher):
             await message.answer("✅ Операция отменена")
         else:
             await message.answer("❌ Нет активных операций для отмены")
+
+    # Обработчики текстовых команд с эмодзи
+    @dp.message(lambda message: message.text == "🏠 Главная")
+    async def text_start_handler(message: Message, user: TelegramUser) -> None:
+        await command_start_handler(message, user)
+
+    @dp.message(lambda message: message.text == "📋 Последние")
+    async def text_recent_handler(message: Message, user: TelegramUser) -> None:
+        await recent_handler(message, user)
+
+    @dp.message(lambda message: message.text == "⏳ Необработанные")
+    async def text_unprocessed_handler(message: Message, user: TelegramUser) -> None:
+        await unprocessed_handler(message, user)
+
+    @dp.message(lambda message: message.text == "🔄 Парсинг")
+    async def text_parse_handler(message: Message, user: TelegramUser) -> None:
+        await parse_handler(message, user)
+
+    @dp.message(lambda message: message.text == "📊 Статистика")
+    async def text_stats_handler(message: Message, user: TelegramUser) -> None:
+        await stats_handler(message, user)
+
+    @dp.message(lambda message: message.text == "📧 Аккаунты")
+    async def text_accounts_handler(message: Message, user: TelegramUser) -> None:
+        await accounts_handler(message, user)
+
+    @dp.message(lambda message: message.text == "➕ Добавить аккаунт")
+    async def text_add_account_handler(message: Message, user: TelegramUser) -> None:
+        await add_account_command_handler(message, user)
+
+    @dp.message(lambda message: message.text == "📥 Экспорт")
+    async def text_export_handler(message: Message, user: TelegramUser) -> None:
+        await export_handler(message, user)
+
+    @dp.message(lambda message: message.text == "👥 Пользователи")
+    async def text_users_handler(message: Message, user: TelegramUser) -> None:
+        await users_handler(message, user)
