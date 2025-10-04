@@ -1259,43 +1259,39 @@ def setup_handlers(dp: Dispatcher):
     @admin_only
     async def accounts_handler(message: Message, user: TelegramUser) -> None:
         """Показывает список всех Gmail аккаунтов"""
-        import json
-        import os
+        async with AsyncSessionLocal() as session:
+            from shared.models.gmail_account import GmailAccount
 
-        accounts_config_path = "bot/gmail_accounts.json"
+            # Получаем все аккаунты из БД
+            stmt = select(GmailAccount).order_by(GmailAccount.name)
+            result = await session.execute(stmt)
+            accounts = result.scalars().all()
 
-        if not os.path.exists(accounts_config_path):
-            await message.answer("❌ Файл конфигурации аккаунтов не найден")
-            return
+            if not accounts:
+                await message.answer("📭 Нет настроенных Gmail аккаунтов\n\n"
+                                   "Используйте команду /add_account для добавления")
+                return
 
-        with open(accounts_config_path, 'r', encoding='utf-8') as f:
-            accounts = json.load(f)
+            # Создаем клавиатуру с аккаунтами
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
-        if not accounts:
-            await message.answer("📭 Нет настроенных Gmail аккаунтов\n\n"
-                               "Используйте скрипт add_gmail_account.py для добавления")
-            return
+            for account in accounts:
+                status_emoji = "✅" if account.enabled else "❌"
+                button_text = f"{status_emoji} {account.name}"
 
-        # Создаем клавиатуру с аккаунтами
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                button = InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=AccountCallback(account_id=account.id).pack()
+                )
+                keyboard.inline_keyboard.append([button])
 
-        for account in accounts:
-            status_emoji = "✅" if account.get('enabled', True) else "❌"
-            button_text = f"{status_emoji} {account.get('name', account['id'])}"
+            text = "📧 <b>Gmail аккаунты</b>\n\n"
+            text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
+            enabled_count = sum(1 for acc in accounts if acc.enabled)
+            text += f"Активных: <b>{enabled_count}</b>\n\n"
+            text += "Выберите аккаунт для просмотра деталей:"
 
-            button = InlineKeyboardButton(
-                text=button_text,
-                callback_data=AccountCallback(account_id=account['id']).pack()
-            )
-            keyboard.inline_keyboard.append([button])
-
-        text = "📧 <b>Gmail аккаунты</b>\n\n"
-        text += f"Всего аккаунтов: <b>{len(accounts)}</b>\n"
-        enabled_count = sum(1 for acc in accounts if acc.get('enabled', True))
-        text += f"Активных: <b>{enabled_count}</b>\n\n"
-        text += "Выберите аккаунт для просмотра деталей:"
-
-        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
     @dp.callback_query(AccountCallback.filter())
     async def account_details_handler(query: CallbackQuery, callback_data: AccountCallback, user: TelegramUser) -> None:
@@ -1585,44 +1581,36 @@ def setup_handlers(dp: Dispatcher):
             await query.answer("❌ Только для администраторов", show_alert=True)
             return
 
-        import json
+        async with AsyncSessionLocal() as session:
+            from shared.models.gmail_account import GmailAccount
 
-        accounts_config_path = "bot/gmail_accounts.json"
+            # Получаем аккаунт из БД
+            account = await session.get(GmailAccount, callback_data.account_id)
 
-        with open(accounts_config_path, 'r', encoding='utf-8') as f:
-            accounts = json.load(f)
+            if not account:
+                await query.message.answer("❌ Аккаунт не найден")
+                return
 
-        # Находим и обновляем аккаунт
-        account_updated = False
-        for account in accounts:
-            if account['id'] == callback_data.account_id:
-                if callback_data.action == "enable":
-                    account['enabled'] = True
-                    status_msg = f"✅ Аккаунт <b>{account.get('name', account['id'])}</b> включен"
-                else:
-                    account['enabled'] = False
-                    status_msg = f"❌ Аккаунт <b>{account.get('name', account['id'])}</b> отключен"
-                account_updated = True
-                break
+            # Обновляем статус
+            if callback_data.action == "enable":
+                account.enabled = True
+                status_msg = f"✅ Аккаунт <b>{account.name}</b> включен"
+            else:
+                account.enabled = False
+                status_msg = f"❌ Аккаунт <b>{account.name}</b> отключен"
 
-        if not account_updated:
-            await query.message.answer("❌ Аккаунт не найден")
-            return
+            await session.commit()
 
-        # Сохраняем изменения
-        with open(accounts_config_path, 'w', encoding='utf-8') as f:
-            json.dump(accounts, f, indent=2, ensure_ascii=False)
+            # Показываем уведомление
+            notification = await query.message.answer(status_msg, parse_mode="HTML")
 
-        # Показываем уведомление
-        notification = await query.message.answer(status_msg, parse_mode="HTML")
+            # Обновляем детали аккаунта
+            account_callback = AccountCallback(account_id=callback_data.account_id)
+            await account_details_handler(query, account_callback, user)
 
-        # Обновляем детали аккаунта
-        account_callback = AccountCallback(account_id=callback_data.account_id)
-        await account_details_handler(query, account_callback)
-
-        # Удаляем уведомление через 2 секунды
-        import asyncio
-        asyncio.create_task(delete_message_after_delay(notification, 2))
+            # Удаляем уведомление через 2 секунды
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(notification, 2))
 
     @dp.callback_query(lambda c: c.data == "back_to_accounts")
     async def back_to_accounts_handler(query: CallbackQuery, user: TelegramUser) -> None:
