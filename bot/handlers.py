@@ -176,6 +176,7 @@ def setup_handlers(dp: Dispatcher):
             if user.is_admin:
                 accounts_stmt = select(GmailAccount).where(GmailAccount.enabled == True)
             else:
+                # Модератор видит только свои привязанные аккаунты
                 accounts_stmt = select(GmailAccount).where(
                     GmailAccount.enabled == True,
                     GmailAccount.user_id == user.id
@@ -183,6 +184,10 @@ def setup_handlers(dp: Dispatcher):
 
             accounts_result = await session.execute(accounts_stmt)
             accounts = accounts_result.scalars().all()
+
+            # Логирование для отладки
+            print(f"User role: {user.role}, User ID: {user.id}, Is Admin: {user.is_admin}")
+            print(f"Found {len(accounts)} accounts for user")
 
             if not accounts:
                 await message.answer("❌ Нет доступных аккаунтов для статистики")
