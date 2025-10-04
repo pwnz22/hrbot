@@ -134,6 +134,10 @@ class GmailParser:
                 userId='me', id=message_id, format='full'
             ).execute()
 
+            # Получаем дату письма из internalDate (миллисекунды)
+            internal_date_ms = int(message.get('internalDate', 0))
+            email_date = datetime.fromtimestamp(internal_date_ms / 1000) if internal_date_ms else datetime.now()
+
             headers = message['payload'].get('headers', [])
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '')
             from_email = next((h['value'] for h in headers if h['name'] == 'From'), '')
@@ -264,7 +268,8 @@ class GmailParser:
                     attachment_filename=attachment_filename,
                     gmail_message_id=message_id,
                     applicant_message=contact_info.get('message'),
-                    vacancy_id=vacancy.id if vacancy else None
+                    vacancy_id=vacancy.id if vacancy else None,
+                    created_at=email_date  # Используем дату письма вместо текущей даты
                 )
 
 
