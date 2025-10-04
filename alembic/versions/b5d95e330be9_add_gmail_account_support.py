@@ -38,15 +38,19 @@ def upgrade() -> None:
     # Create gmail_accounts table
     op.create_table(
         'gmail_accounts',
-        sa.Column('id', sa.String(), nullable=False),
+        sa.Column('id', sa.Integer(), nullable=False, autoincrement=True),
+        sa.Column('account_id', sa.String(), nullable=False),
         sa.Column('name', sa.String(), nullable=False),
         sa.Column('credentials_path', sa.String(), nullable=False),
         sa.Column('token_path', sa.String(), nullable=False),
         sa.Column('enabled', sa.Boolean(), nullable=True),
         sa.Column('user_id', sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(['user_id'], ['telegram_users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('account_id')
     )
+    op.create_index('ix_gmail_accounts_id', 'gmail_accounts', ['id'])
+    op.create_index('ix_gmail_accounts_account_id', 'gmail_accounts', ['account_id'], unique=True)
 
     # Create vacancies table
     op.create_table(
@@ -55,7 +59,7 @@ def upgrade() -> None:
         sa.Column('title', sa.String(255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-        sa.Column('gmail_account_id', sa.String(), nullable=True),
+        sa.Column('gmail_account_id', sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(['gmail_account_id'], ['gmail_accounts.id'], ),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('title')
