@@ -1447,10 +1447,9 @@ def setup_handlers(dp: Dispatcher):
                 await query.answer("✅ Аккаунт отвязан от пользователя", show_alert=True)
 
                 # Возвращаемся к деталям аккаунта
-                from bot.handlers import AccountCallback
                 # Эмулируем callback для показа обновленных деталей
-                updated_callback = AccountCallback(account_id=callback_data.account_id)
-                await account_details_handler(query, updated_callback, user)
+                callback_obj = AccountCallback(account_id=callback_data.account_id)
+                await account_details_handler(query, callback_obj, user)
 
         elif callback_data.action == "link":
             # Привязываем аккаунт к пользователю
@@ -1601,8 +1600,8 @@ def setup_handlers(dp: Dispatcher):
             notification = await query.message.answer(status_msg, parse_mode="HTML")
 
             # Обновляем детали аккаунта
-            account_callback = AccountCallback(account_id=callback_data.account_id)
-            await account_details_handler(query, account_callback, user)
+            callback_obj = AccountCallback(account_id=callback_data.account_id)
+            await account_details_handler(query, callback_obj, user)
 
             # Удаляем уведомление через 2 секунды
             import asyncio
