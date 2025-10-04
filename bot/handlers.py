@@ -39,7 +39,11 @@ class DeleteCallback(CallbackData, prefix="delete"):
 
 class SummaryCallback(CallbackData, prefix="summary"):
     application_id: int
-    action: str  # "generate"
+    action: str  # "generate", "show"
+
+class QuestionsCallback(CallbackData, prefix="questions"):
+    application_id: int
+    action: str  # "generate", "show"
 
 class ResumeCallback(CallbackData, prefix="resume"):
     application_id: int
@@ -1008,9 +1012,15 @@ def setup_handlers(dp: Dispatcher):
 
                         await status_msg.edit_text("✅ Анализ резюме сгенерирован!")
 
-                        # Отправляем сгенерированный summary
+                        # Отправляем сгенерированный summary с кнопкой для генерации вопросов
                         summary_msg = f"🤖 <b>Анализ резюме для {application.name}:</b>\n\n{summary}"
-                        await query.message.answer(summary_msg, parse_mode="HTML")
+                        questions_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text="❓ Сгенерировать вопросы для собеседования",
+                                callback_data=QuestionsCallback(application_id=application.id, action="generate").pack()
+                            )]
+                        ])
+                        await query.message.answer(summary_msg, parse_mode="HTML", reply_markup=questions_keyboard)
 
                         # Удаляем статусное сообщение через 2 секунды
                         import asyncio
@@ -1023,6 +1033,73 @@ def setup_handlers(dp: Dispatcher):
 
             except Exception as e:
                 await status_msg.edit_text(f"❌ Ошибка при генерации анализа: {str(e)}")
+                import asyncio
+                asyncio.create_task(delete_message_after_delay(status_msg, 3))
+
+    @dp.callback_query(QuestionsCallback.filter())
+    async def questions_handler(query: CallbackQuery, callback_data: QuestionsCallback, user: TelegramUser) -> None:
+        await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
+
+        if callback_data.action == "generate":
+            status_msg = await query.message.answer("🤖 Генерирую вопросы для собеседования...")
+
+            try:
+                async with AsyncSessionLocal() as session:
+                    # Получаем отклик
+                    app_stmt = select(Application).where(Application.id == callback_data.application_id)
+                    app_result = await session.execute(app_stmt)
+                    application = app_result.scalar_one_or_none()
+
+                    if not application:
+                        await status_msg.edit_text("❌ Отклик не найден")
+                        return
+
+                    # Проверяем наличие файла резюме
+                    if not application.file_path:
+                        await status_msg.edit_text("❌ Файл резюме не найден")
+                        return
+
+                    # Получаем вакансию
+                    vacancy_stmt = select(Vacancy).where(Vacancy.id == application.vacancy_id)
+                    vacancy_result = await session.execute(vacancy_stmt)
+                    vacancy = vacancy_result.scalar_one_or_none()
+
+                    # Извлекаем текст из резюме
+                    from shared.services.document_extractor import DocumentTextExtractor
+                    from shared.services.gemini_service import GeminiService
+
+                    extractor = DocumentTextExtractor()
+                    resume_text = extractor.extract_text_from_file(application.file_path)
+
+                    if not resume_text:
+                        await status_msg.edit_text("❌ Не удалось извлечь текст из резюме")
+                        return
+
+                    # Генерируем вопросы через Gemini
+                    gemini_service = GeminiService()
+                    vacancy_title = vacancy.title if vacancy else ""
+                    questions = gemini_service.generate_interview_questions(resume_text, vacancy_title)
+
+                    if questions:
+                        await status_msg.edit_text("✅ Вопросы сгенерированы!")
+
+                        # Отправляем вопросы
+                        await query.message.answer(questions, parse_mode="HTML")
+
+                        # Удаляем статусное сообщение через 2 секунды
+                        import asyncio
+                        asyncio.create_task(delete_message_after_delay(status_msg, 2))
+                    else:
+                        await status_msg.edit_text("❌ Не удалось сгенерировать вопросы")
+                        import asyncio
+                        asyncio.create_task(delete_message_after_delay(status_msg, 3))
+
+            except Exception as e:
+                await status_msg.edit_text(f"❌ Ошибка при генерации вопросов: {str(e)}")
                 import asyncio
                 asyncio.create_task(delete_message_after_delay(status_msg, 3))
 
