@@ -310,10 +310,12 @@ def setup_handlers(dp: Dispatcher):
             else:
                 # Модератор видит только отклики из привязанных к нему аккаунтов
                 from shared.models.gmail_account import GmailAccount
-                stmt = select(Application).options(selectinload(Application.vacancy)).join(
-                    Vacancy, Application.vacancy_id == Vacancy.id
+                stmt = select(Application).options(
+                    selectinload(Application.vacancy).selectinload(Vacancy.gmail_account)
                 ).join(
-                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id
+                    Vacancy, Application.vacancy_id == Vacancy.id, isouter=False
+                ).join(
+                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id, isouter=False
                 ).where(
                     Application.is_processed == False,
                     Application.deleted_at.is_(None),
