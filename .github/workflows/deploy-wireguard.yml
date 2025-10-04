@@ -29,8 +29,14 @@ jobs:
         run: |
           sudo wg show
           echo "Testing connection to server..."
-          ping -c 3 ${{ secrets.SERVER_VPN_IP }}
+          ping -c 5 ${{ secrets.SERVER_VPN_IP }}
           ip addr show wg0
+          echo "Waiting for SSH to be available..."
+          for i in {1..30}; do
+            nc -zv ${{ secrets.SERVER_VPN_IP }} 22 2>&1 && break
+            echo "Attempt $i: SSH not ready, waiting..."
+            sleep 2
+          done
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
@@ -38,6 +44,7 @@ jobs:
           host: ${{ secrets.SERVER_VPN_IP }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          debug: true
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
             git pull origin main
