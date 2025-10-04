@@ -1298,7 +1298,7 @@ def setup_handlers(dp: Dispatcher):
             )
             await message.answer(error_text, parse_mode="HTML")
 
-    @dp.message(lambda message: message.from_user.id in user_auth_states and user_auth_states.get(message.from_user.id))
+    @dp.message(lambda message: message.from_user.id in user_auth_states and user_auth_states.get(message.from_user.id) and message.text and not message.text.startswith('/'))
     async def handle_auth_code(message: Message, user: TelegramUser) -> None:
         """Обрабатывает код авторизации от пользователя"""
         from bot.gmail_account_manager import GmailAccountManager
