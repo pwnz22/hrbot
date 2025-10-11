@@ -1220,7 +1220,7 @@ def setup_handlers(dp: Dispatcher):
                 # Заголовки
                 headers = [
                     "ID", "Имя", "Email", "Телефон", "Вакансия",
-                    "Статус", "Дата отклика", "Сообщение", "Файл", "Анализ резюме"
+                    "Статус", "Дата отклика", "Сообщение", "Описание обработки", "Файл", "Анализ резюме"
                 ]
 
                 # Стиль заголовков
@@ -1247,11 +1247,15 @@ def setup_handlers(dp: Dispatcher):
                     message_cell = ws.cell(row=row, column=8, value=app.applicant_message or "")
                     message_cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-                    ws.cell(row=row, column=9, value=app.attachment_filename or "")
+                    # Колонка "Описание обработки" с переносом текста
+                    description_cell = ws.cell(row=row, column=9, value=app.processing_description or "")
+                    description_cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+                    ws.cell(row=row, column=10, value=app.attachment_filename or "")
 
                     # Колонка "Анализ резюме" с очищенным от HTML текстом
                     summary_text = clean_html_tags(app.summary) if app.summary else ""
-                    summary_cell = ws.cell(row=row, column=10, value=summary_text)
+                    summary_cell = ws.cell(row=row, column=11, value=summary_text)
                     summary_cell.alignment = Alignment(wrap_text=True, vertical="top")
 
                 # Автоширина колонок
