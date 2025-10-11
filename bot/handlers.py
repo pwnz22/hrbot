@@ -17,6 +17,9 @@ from bot.middleware import moderator_or_admin, admin_only
 # Словарь для хранения ID сообщений с файлами резюме для каждого пользователя
 user_resume_messages = {}
 
+# Словарь для хранения состояния ввода описания обработки
+user_description_states = {}  # {user_id: {"application_id": int, "action": "add"|"edit"}}
+
 class VacancyCallback(CallbackData, prefix="vacancy"):
     vacancy_id: int
 
@@ -71,6 +74,11 @@ class AccountLinkCallback(CallbackData, prefix="account_link"):
 class AccountDeleteCallback(CallbackData, prefix="account_delete"):
     account_id: str
     action: str  # "confirm", "execute"
+
+class DescriptionCallback(CallbackData, prefix="description"):
+    application_id: int
+    action: str  # "view", "edit"
+    source: str = "recent"
 
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
@@ -495,6 +503,8 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.callback_query(ApplicationCallback.filter())
     async def application_details_handler(query: CallbackQuery, callback_data: ApplicationCallback, user: TelegramUser) -> None:
+        from bot.utils.formatters import format_application_details
+
         await query.answer()
 
         if not user.has_permission('view_applications'):
@@ -517,17 +527,7 @@ def setup_handlers(dp: Dispatcher):
             vacancy = vacancy_result.scalar_one_or_none()
 
             # Формируем детальную информацию
-            status = "✅ Обработан" if application.is_processed else "❌ Не обработан"
-
-            text = f"👤 <b>{application.name}</b>\n\n"
-            text += f"📋 Вакансия: {vacancy.title if vacancy else 'Неизвестно'}\n"
-            text += f"📧 Email: {application.email or 'Не указан'}\n"
-            text += f"📱 Телефон: {application.phone or 'Не указан'}\n"
-            text += f"🏷️ Статус: {status}\n"
-            text += f"📅 Дата отклика: {application.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-
-            if application.applicant_message:
-                text += f"💬 <b>Сообщение от кандидата:</b>\n{application.applicant_message}\n\n"
+            text = format_application_details(application, vacancy, include_description=False)
 
 
             # Создаем кнопки для изменения статуса обработки и навигации
@@ -548,6 +548,13 @@ def setup_handlers(dp: Dispatcher):
                 callback_data=DeleteCallback(application_id=application.id, action="confirm", source=callback_data.source).pack()
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
+
+            # Добавляем кнопку просмотра описания (всегда видима)
+            description_button = InlineKeyboardButton(
+                text="📝 Посмотреть описание",
+                callback_data=DescriptionCallback(application_id=application.id, action="view", source=callback_data.source).pack()
+            )
+            keyboard.inline_keyboard.append([description_button])
 
             # Добавляем кнопки для работы с резюме если есть файл
             if (application.file_path or application.attachment_filename) and (
@@ -617,10 +624,27 @@ def setup_handlers(dp: Dispatcher):
 
             # Изменяем статус обработки
             if callback_data.action == "mark_processed":
-                application.is_processed = True
-                status_message = "✅ Отклик отмечен как обработанный"
+                # Запрашиваем описание вместо немедленной обработки
+                user_description_states[query.from_user.id] = {
+                    "application_id": application.id,
+                    "action": "add"
+                }
+
+                prompt_text = (
+                    "📝 <b>Описание обработки</b>\n\n"
+                    f"Вы отмечаете отклик кандидата <b>{application.name}</b> как обработанный.\n\n"
+                    "Пожалуйста, введите описание обработки (обязательно):\n"
+                    "• Результат собеседования\n"
+                    "• Комментарии\n"
+                    "• Дальнейшие действия\n\n"
+                    "💡 Отправьте /cancel для отмены"
+                )
+                await query.message.edit_text(prompt_text, parse_mode="HTML")
+                return
+
             elif callback_data.action == "mark_unprocessed":
                 application.is_processed = False
+                # Сохраняем описание при отмене обработки
                 status_message = "❌ Обработка отклика отменена"
 
             # Сохраняем изменения
@@ -632,17 +656,8 @@ def setup_handlers(dp: Dispatcher):
             vacancy = vacancy_result.scalar_one_or_none()
 
             # Обновляем сообщение с новой информацией
-            status = "✅ Обработан" if application.is_processed else "❌ Не обработан"
-
-            text = f"👤 <b>{application.name}</b>\n\n"
-            text += f"📋 Вакансия: {vacancy.title if vacancy else 'Неизвестно'}\n"
-            text += f"📧 Email: {application.email or 'Не указан'}\n"
-            text += f"📱 Телефон: {application.phone or 'Не указан'}\n"
-            text += f"🏷️ Статус: {status}\n"
-            text += f"📅 Дата отклика: {application.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-
-            if application.applicant_message:
-                text += f"💬 <b>Сообщение от кандидата:</b>\n{application.applicant_message}\n\n"
+            from bot.utils.formatters import format_application_details
+            text = format_application_details(application, vacancy, include_description=False)
 
 
             # Создаем обновленные кнопки
@@ -664,6 +679,13 @@ def setup_handlers(dp: Dispatcher):
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
 
+            # Добавляем кнопку просмотра описания
+            description_button = InlineKeyboardButton(
+                text="📝 Посмотреть описание",
+                callback_data=DescriptionCallback(application_id=application.id, action="view", source="vacancy").pack()
+            )
+            keyboard.inline_keyboard.append([description_button])
+
             # Получаем source из исходного callback (нужно передать через ProcessCallback)
             # Пока используем applications как fallback
             back_button = InlineKeyboardButton(
@@ -681,6 +703,219 @@ def setup_handlers(dp: Dispatcher):
             # Удаляем сообщение через 1 секунду
             import asyncio
             asyncio.create_task(delete_message_after_delay(status_msg, 1))
+
+    @dp.message(lambda message: message.from_user.id in user_description_states and message.text and not message.text.startswith('/'))
+    async def handle_description_input(message: Message, user: TelegramUser) -> None:
+        """Обрабатывает ввод описания обработки отклика"""
+        from bot.utils.formatters import format_application_details
+
+        if not user.has_permission('change_status'):
+            await message.answer("❌ У вас нет прав для изменения статуса")
+            if message.from_user.id in user_description_states:
+                del user_description_states[message.from_user.id]
+            return
+
+        state_data = user_description_states.get(message.from_user.id)
+        if not state_data:
+            return
+
+        application_id = state_data["application_id"]
+        action = state_data["action"]
+        description_text = message.text.strip()
+
+        # Валидация
+        if len(description_text) < 3:
+            await message.answer(
+                "⚠️ Описание слишком короткое. Введите хотя бы 3 символа.\n"
+                "Отправьте /cancel для отмены."
+            )
+            return
+
+        if len(description_text) > 4000:
+            await message.answer(
+                "⚠️ Описание слишком длинное (максимум 4000 символов).\n"
+                "Отправьте /cancel для отмены."
+            )
+            return
+
+        async with AsyncSessionLocal() as session:
+            # Получаем отклик
+            app_stmt = select(Application).where(Application.id == application_id)
+            app_result = await session.execute(app_stmt)
+            application = app_result.scalar_one_or_none()
+
+            if not application:
+                del user_description_states[message.from_user.id]
+                await message.answer("❌ Отклик не найден")
+                return
+
+            # Сохраняем описание и обновляем статус если нужно
+            application.processing_description = description_text
+            if action == "add":
+                application.is_processed = True
+
+            await session.commit()
+
+            # Получаем вакансию
+            vacancy_stmt = select(Vacancy).where(Vacancy.id == application.vacancy_id)
+            vacancy_result = await session.execute(vacancy_stmt)
+            vacancy = vacancy_result.scalar_one_or_none()
+
+            # Очищаем состояние
+            del user_description_states[message.from_user.id]
+
+            # Формируем ответ
+            text = format_application_details(application, vacancy, include_description=False)
+
+            # Создаём клавиатуру
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+            # Кнопки обработки и удаления
+            if application.is_processed:
+                process_button = InlineKeyboardButton(
+                    text="❌ Отменить обработку",
+                    callback_data=ProcessCallback(application_id=application.id, action="mark_unprocessed").pack()
+                )
+            else:
+                process_button = InlineKeyboardButton(
+                    text="✅ Отметить как обработанный",
+                    callback_data=ProcessCallback(application_id=application.id, action="mark_processed").pack()
+                )
+
+            delete_button = InlineKeyboardButton(
+                text="🗑️ Удалить отклик",
+                callback_data=DeleteCallback(application_id=application.id, action="confirm", source="recent").pack()
+            )
+            keyboard.inline_keyboard.append([process_button, delete_button])
+
+            # Кнопка просмотра описания
+            description_button = InlineKeyboardButton(
+                text="📝 Посмотреть описание",
+                callback_data=DescriptionCallback(application_id=application.id, action="view", source="recent").pack()
+            )
+            keyboard.inline_keyboard.append([description_button])
+
+            # Кнопки для резюме
+            if (application.file_path or application.attachment_filename) and (
+                application.attachment_filename and
+                (application.attachment_filename.lower().endswith('.pdf') or application.attachment_filename.lower().endswith('.docx'))
+            ):
+                if application.summary:
+                    summary_button = InlineKeyboardButton(
+                        text="📊 Показать анализ резюме",
+                        callback_data=SummaryCallback(application_id=application.id, action="show").pack()
+                    )
+                else:
+                    summary_button = InlineKeyboardButton(
+                        text="🤖 Сгенерировать анализ резюме",
+                        callback_data=SummaryCallback(application_id=application.id, action="generate").pack()
+                    )
+                keyboard.inline_keyboard.append([summary_button])
+
+                resume_button = InlineKeyboardButton(
+                    text="📄 Получить файл резюме",
+                    callback_data=ResumeCallback(application_id=application.id, action="download").pack()
+                )
+                keyboard.inline_keyboard.append([resume_button])
+
+            # Кнопка назад
+            back_button = InlineKeyboardButton(
+                text="⬅️ Назад к вакансиям",
+                callback_data=BackCallback(to="vacancies").pack()
+            )
+            keyboard.inline_keyboard.append([back_button])
+
+            # Отправляем сообщение
+            await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+            # Уведомление об успехе
+            success_text = "✅ Описание сохранено!" if action == "edit" else "✅ Отклик отмечен как обработанный с описанием!"
+            status_msg = await message.answer(success_text)
+
+            # Удаляем сообщения через 2 секунды
+            import asyncio
+            asyncio.create_task(delete_message_after_delay(status_msg, 2))
+            asyncio.create_task(delete_message_after_delay(message, 2))
+
+    @dp.callback_query(DescriptionCallback.filter())
+    async def description_handler(query: CallbackQuery, callback_data: DescriptionCallback, user: TelegramUser) -> None:
+        """Обрабатывает просмотр и редактирование описания обработки"""
+        from bot.utils.formatters import format_application_details
+
+        await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав для просмотра откликов", show_alert=True)
+            return
+
+        async with AsyncSessionLocal() as session:
+            # Получаем отклик
+            app_stmt = select(Application).where(Application.id == callback_data.application_id)
+            app_result = await session.execute(app_stmt)
+            application = app_result.scalar_one_or_none()
+
+            if not application:
+                await query.message.edit_text("❌ Отклик не найден")
+                return
+
+            # Получаем вакансию
+            vacancy_stmt = select(Vacancy).where(Vacancy.id == application.vacancy_id)
+            vacancy_result = await session.execute(vacancy_stmt)
+            vacancy = vacancy_result.scalar_one_or_none()
+
+            if callback_data.action == "view":
+                # Показываем полную информацию с описанием
+                text = "📝 <b>Описание обработки отклика</b>\n\n"
+                text += format_application_details(application, vacancy, include_description=True)
+
+                # Создаём клавиатуру
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+
+                # Кнопка редактирования
+                if user.has_permission('change_status'):
+                    edit_button = InlineKeyboardButton(
+                        text="✏️ Редактировать описание",
+                        callback_data=DescriptionCallback(
+                            application_id=application.id,
+                            action="edit",
+                            source=callback_data.source
+                        ).pack()
+                    )
+                    keyboard.inline_keyboard.append([edit_button])
+
+                # Кнопка назад к отклику
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад к отклику",
+                    callback_data=ApplicationCallback(
+                        application_id=application.id,
+                        source=callback_data.source
+                    ).pack()
+                )
+                keyboard.inline_keyboard.append([back_button])
+
+                await query.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+            elif callback_data.action == "edit":
+                # Проверяем права
+                if not user.has_permission('change_status'):
+                    await query.answer("❌ У вас нет прав для редактирования", show_alert=True)
+                    return
+
+                # Устанавливаем состояние редактирования
+                user_description_states[query.from_user.id] = {
+                    "application_id": application.id,
+                    "action": "edit"
+                }
+
+                current_desc = application.processing_description or "Отсутствует"
+
+                prompt_text = (
+                    "✏️ <b>Редактирование описания обработки</b>\n\n"
+                    f"Кандидат: <b>{application.name}</b>\n\n"
+                    f"<b>Текущее описание:</b>\n{current_desc}\n\n"
+                    "Отправьте новое описание следующим сообщением или /cancel для отмены:"
+                )
+                await query.message.edit_text(prompt_text, parse_mode="HTML")
 
     @dp.callback_query(DeleteCallback.filter())
     async def delete_handler(query: CallbackQuery, callback_data: DeleteCallback, user: TelegramUser) -> None:
@@ -1965,6 +2200,9 @@ def setup_handlers(dp: Dispatcher):
         if user_id in user_auth_states:
             del user_auth_states[user_id]
             await message.answer("✅ Операция отменена")
+        elif user_id in user_description_states:
+            del user_description_states[user_id]
+            await message.answer("✅ Ввод описания отменён")
         else:
             await message.answer("❌ Нет активных операций для отмены")
 

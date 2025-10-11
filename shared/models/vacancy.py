@@ -31,5 +31,6 @@ class Application(Base):
     is_processed = Column(Boolean, default=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     summary = Column(Text, nullable=True)
+    processing_description = Column(Text, nullable=True)
 
     vacancy = relationship("Vacancy", back_populates="applications")
