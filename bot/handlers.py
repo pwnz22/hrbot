@@ -549,12 +549,13 @@ def setup_handlers(dp: Dispatcher):
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
 
-            # Добавляем кнопку просмотра описания (всегда видима)
-            description_button = InlineKeyboardButton(
-                text="📝 Посмотреть описание",
-                callback_data=DescriptionCallback(application_id=application.id, action="view", source=callback_data.source).pack()
-            )
-            keyboard.inline_keyboard.append([description_button])
+            # Добавляем кнопку просмотра описания только если описание есть
+            if application.processing_description:
+                description_button = InlineKeyboardButton(
+                    text="📝 Посмотреть описание",
+                    callback_data=DescriptionCallback(application_id=application.id, action="view", source=callback_data.source).pack()
+                )
+                keyboard.inline_keyboard.append([description_button])
 
             # Добавляем кнопки для работы с резюме если есть файл
             if (application.file_path or application.attachment_filename) and (
@@ -679,12 +680,13 @@ def setup_handlers(dp: Dispatcher):
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
 
-            # Добавляем кнопку просмотра описания
-            description_button = InlineKeyboardButton(
-                text="📝 Посмотреть описание",
-                callback_data=DescriptionCallback(application_id=application.id, action="view", source="vacancy").pack()
-            )
-            keyboard.inline_keyboard.append([description_button])
+            # Добавляем кнопку просмотра описания только если описание есть
+            if application.processing_description:
+                description_button = InlineKeyboardButton(
+                    text="📝 Посмотреть описание",
+                    callback_data=DescriptionCallback(application_id=application.id, action="view", source="vacancy").pack()
+                )
+                keyboard.inline_keyboard.append([description_button])
 
             # Получаем source из исходного callback (нужно передать через ProcessCallback)
             # Пока используем applications как fallback
@@ -788,12 +790,13 @@ def setup_handlers(dp: Dispatcher):
             )
             keyboard.inline_keyboard.append([process_button, delete_button])
 
-            # Кнопка просмотра описания
-            description_button = InlineKeyboardButton(
-                text="📝 Посмотреть описание",
-                callback_data=DescriptionCallback(application_id=application.id, action="view", source="recent").pack()
-            )
-            keyboard.inline_keyboard.append([description_button])
+            # Кнопка просмотра описания только если описание есть
+            if application.processing_description:
+                description_button = InlineKeyboardButton(
+                    text="📝 Посмотреть описание",
+                    callback_data=DescriptionCallback(application_id=application.id, action="view", source="recent").pack()
+                )
+                keyboard.inline_keyboard.append([description_button])
 
             # Кнопки для резюме
             if (application.file_path or application.attachment_filename) and (
