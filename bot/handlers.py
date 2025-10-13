@@ -75,6 +75,9 @@ class AccountDeleteCallback(CallbackData, prefix="account_delete"):
     account_id: str
     action: str  # "confirm", "execute"
 
+class AccountAuthCallback(CallbackData, prefix="account_auth"):
+    account_id: str
+
 class DescriptionCallback(CallbackData, prefix="description"):
     application_id: int
     action: str  # "view", "edit"
@@ -1606,6 +1609,13 @@ def setup_handlers(dp: Dispatcher):
                 )
                 keyboard.inline_keyboard.append([link_button])
 
+            # Кнопка "Авторизация"
+            auth_button = InlineKeyboardButton(
+                text="🔐 Переавторизовать",
+                callback_data=AccountAuthCallback(account_id=account.account_id).pack()
+            )
+            keyboard.inline_keyboard.append([auth_button])
+
             # Кнопка "Удалить аккаунт"
             delete_button = InlineKeyboardButton(
                 text="🗑️ Удалить аккаунт",
@@ -1725,6 +1735,38 @@ def setup_handlers(dp: Dispatcher):
                 await asyncio.sleep(2)
                 callback_obj = AccountCallback(account_id=callback_data.account_id)
                 await account_details_handler(query, callback_obj, user)
+
+    @dp.callback_query(AccountAuthCallback.filter())
+    async def account_auth_handler(query: CallbackQuery, callback_data: AccountAuthCallback, user: TelegramUser) -> None:
+        """Обработчик авторизации аккаунта"""
+        await query.answer()
+
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
+
+        from bot.gmail_account_manager import GmailAccountManager
+
+        # Генерируем URL авторизации
+        success, result, _ = GmailAccountManager.generate_auth_url()
+
+        if not success:
+            await query.answer(result, show_alert=True)
+            return
+
+        auth_url = result
+
+        # Отправляем URL в личку пользователю
+        await query.message.answer(
+            f"🔐 <b>Авторизация аккаунта</b>\n\n"
+            f"1️⃣ Перейдите по ссылке:\n{auth_url}\n\n"
+            f"2️⃣ Авторизуйтесь в Google аккаунте\n\n"
+            f"3️⃣ Скопируйте код и отправьте его мне",
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+
+        await query.answer("✅ Ссылка отправлена вам в сообщении", show_alert=True)
 
     @dp.callback_query(AccountDeleteCallback.filter())
     async def account_delete_handler(query: CallbackQuery, callback_data: AccountDeleteCallback, user: TelegramUser) -> None:

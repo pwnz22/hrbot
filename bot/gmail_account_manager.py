@@ -107,9 +107,6 @@ class GmailAccountManager:
                 result = await session.execute(stmt)
                 existing_account = result.scalar_one_or_none()
 
-                if existing_account:
-                    return False, f"⚠️ Аккаунт {email} уже добавлен", None
-
                 # Сохраняем token
                 token_path = f"gmail_tokens/token_{account_id}.json"
                 os.makedirs('gmail_tokens', exist_ok=True)
@@ -117,7 +114,27 @@ class GmailAccountManager:
                 with open(token_path, 'w') as token_file:
                     token_file.write(creds.to_json())
 
-                # Создаем запись в БД
+                if existing_account:
+                    # Обновляем токен существующего аккаунта
+                    existing_account.token_path = token_path
+                    existing_account.credentials_path = CREDENTIALS_PATH
+                    await session.commit()
+
+                    success_message = (
+                        f"✅ Токен успешно обновлен!\n"
+                        f"📧 Email: {email}\n"
+                        f"🆔 ID: {account_id}\n"
+                        f"🏷️ Статус: {'✅ Включен' if existing_account.enabled else '❌ Отключен'}"
+                    )
+
+                    account_data = {
+                        "id": account_id,
+                        "name": email
+                    }
+
+                    return True, success_message, account_data
+
+                # Создаем новую запись в БД
                 new_account = GmailAccount(
                     account_id=account_id,
                     name=email,

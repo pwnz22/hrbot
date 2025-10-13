@@ -35,7 +35,18 @@ class GmailParser:
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    error_str = str(e)
+                    # Проверяем, является ли ошибка invalid_grant (токен отозван/истек)
+                    if 'invalid_grant' in error_str.lower() or 'revoked' in error_str.lower():
+                        raise Exception(
+                            f"Токен для аккаунта '{self.account_id}' истек или был отозван. "
+                            "Пожалуйста, переавторизуйте аккаунт через команду /add_gmail"
+                        )
+                    # Если другая ошибка, пробрасываем её дальше
+                    raise
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.credentials_path, SCOPES)
