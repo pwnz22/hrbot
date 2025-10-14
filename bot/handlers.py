@@ -83,6 +83,9 @@ class DescriptionCallback(CallbackData, prefix="description"):
     action: str  # "view", "edit"
     source: str = "recent"
 
+class ExportCallback(CallbackData, prefix="export"):
+    filter_type: str  # "all" или "unprocessed"
+
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
     import asyncio
@@ -1188,9 +1191,7 @@ def setup_handlers(dp: Dispatcher):
 
                 await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
-    @dp.message(Command("export"))
-    @moderator_or_admin
-    async def export_handler(message: Message, user: TelegramUser) -> None:
+    async def do_export(message: Message, user: TelegramUser, filter_type: str = "all") -> None:
         status_msg = await message.answer("📊 Создаю Excel файл с откликами...")
 
         try:
@@ -1200,12 +1201,19 @@ def setup_handlers(dp: Dispatcher):
                 # Получаем все не удаленные отклики с вакансиями
                 stmt = select(Application).options(selectinload(Application.vacancy)).where(
                     Application.deleted_at.is_(None)
-                ).order_by(desc(Application.created_at))
+                )
+
+                # Добавляем фильтр по статусу обработки, если нужно
+                if filter_type == "unprocessed":
+                    stmt = stmt.where(Application.is_processed == False)
+
+                stmt = stmt.order_by(desc(Application.created_at))
                 result = await session.execute(stmt)
                 applications = result.scalars().all()
 
                 if not applications:
-                    await status_msg.edit_text("📭 Нет откликов для экспорта")
+                    filter_text = "необработанных откликов" if filter_type == "unprocessed" else "откликов"
+                    await status_msg.edit_text(f"📭 Нет {filter_text} для экспорта")
                     import asyncio
                     asyncio.create_task(delete_message_after_delay(status_msg, 2))
                     asyncio.create_task(delete_message_after_delay(message, 2))
@@ -1288,10 +1296,12 @@ def setup_handlers(dp: Dispatcher):
                 from aiogram.types import FSInputFile
                 file = FSInputFile(file_path, filename=filename)
 
+                export_type_text = "Только необработанные" if filter_type == "unprocessed" else "Все отклики"
                 await status_msg.edit_text(f"✅ Excel файл готов!\nОтклики: {len(applications)}")
                 await message.answer_document(
                     file,
                     caption=f"📊 Экспорт откликов\n\n"
+                           f"Тип: {export_type_text}\n"
                            f"Всего откликов: {len(applications)}\n"
                            f"Создан: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
                 )
@@ -1312,6 +1322,48 @@ def setup_handlers(dp: Dispatcher):
             import asyncio
             asyncio.create_task(delete_message_after_delay(status_msg, 2))
             asyncio.create_task(delete_message_after_delay(message, 2))
+
+    @dp.message(Command("export"))
+    @moderator_or_admin
+    async def export_handler(message: Message, user: TelegramUser) -> None:
+        # Создаем inline клавиатуру с выбором типа экспорта
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Все отклики",
+                    callback_data=ExportCallback(filter_type="all").pack()
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Только необработанные",
+                    callback_data=ExportCallback(filter_type="unprocessed").pack()
+                )
+            ]
+        ])
+
+        await message.answer(
+            "📥 <b>Выберите тип экспорта:</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    @dp.callback_query(ExportCallback.filter())
+    async def export_callback_handler(query: CallbackQuery, callback_data: ExportCallback, user: TelegramUser) -> None:
+        await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав для экспорта", show_alert=True)
+            return
+
+        # Вызываем экспорт с выбранным фильтром
+        await do_export(query.message, user, filter_type=callback_data.filter_type)
+
+        # Удаляем сообщение с выбором после выполнения экспорта
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
     @dp.callback_query(SummaryCallback.filter())
     async def summary_handler(query: CallbackQuery, callback_data: SummaryCallback, user: TelegramUser) -> None:
@@ -2292,7 +2344,31 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.message(lambda message: message.text == "📥 Экспорт")
     async def text_export_handler(message: Message, user: TelegramUser) -> None:
-        await export_handler(message, user)
+        if not user.has_permission('view_applications'):
+            await message.answer("❌ У вас нет прав для экспорта")
+            return
+
+        # Создаем inline клавиатуру с выбором типа экспорта
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Все отклики",
+                    callback_data=ExportCallback(filter_type="all").pack()
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Только необработанные",
+                    callback_data=ExportCallback(filter_type="unprocessed").pack()
+                )
+            ]
+        ])
+
+        await message.answer(
+            "📥 <b>Выберите тип экспорта:</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
     @dp.message(lambda message: message.text == "👥 Пользователи")
     async def text_users_handler(message: Message, user: TelegramUser) -> None:
