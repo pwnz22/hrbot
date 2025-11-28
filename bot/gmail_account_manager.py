@@ -43,11 +43,11 @@ class GmailAccountManager:
             return False, "❌ Файл credentials.json не найден в gmail_tokens/", None
 
         try:
-            # Создаем OAuth flow
+            # Создаем OAuth flow с localhost redirect (OOB устарел)
             flow = InstalledAppFlow.from_client_secrets_file(
                 CREDENTIALS_PATH,
                 SCOPES,
-                redirect_uri='urn:ietf:wg:oauth:2.0:oob'  # Для manual copy/paste
+                redirect_uri='http://localhost'
             )
 
             auth_url, _ = flow.authorization_url(prompt='consent')
@@ -74,11 +74,11 @@ class GmailAccountManager:
             return False, "❌ Файл credentials.json не найден в gmail_tokens/", None
 
         try:
-            # Создаем flow заново
+            # Создаем flow заново с localhost redirect
             flow = InstalledAppFlow.from_client_secrets_file(
                 CREDENTIALS_PATH,
                 SCOPES,
-                redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+                redirect_uri='http://localhost'
             )
 
             # Получаем токен используя код
