@@ -2125,6 +2125,91 @@ def setup_handlers(dp: Dispatcher):
             import asyncio
             asyncio.create_task(delete_message_after_delay(message, 1))
 
+    @dp.message(lambda message: message.from_user.id in user_sender_email_states and message.text and not message.text.startswith('/'))
+    async def handle_sender_email_input(message: Message, user: TelegramUser) -> None:
+        """Обрабатывает ввод sender_email от пользователя"""
+        if not user.is_admin:
+            await message.answer("❌ Только для администраторов")
+            if message.from_user.id in user_sender_email_states:
+                del user_sender_email_states[message.from_user.id]
+            return
+
+        state_data = user_sender_email_states.get(message.from_user.id)
+        if not state_data:
+            return
+
+        sender_email = message.text.strip()
+        account_id = state_data["account_id"]
+        account_name = state_data["account_name"]
+
+        from shared.models.gmail_account import GmailAccount
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(GmailAccount).where(GmailAccount.account_id == account_id)
+            result = await session.execute(stmt)
+            gmail_account = result.scalar_one_or_none()
+
+            if not gmail_account:
+                del user_sender_email_states[message.from_user.id]
+                await message.answer("❌ Аккаунт не найден в базе данных")
+                return
+
+            gmail_account.sender_email = sender_email
+            await session.commit()
+
+            del user_sender_email_states[message.from_user.id]
+
+            success_msg = (
+                f"✅ <b>Настройка завершена!</b>\n\n"
+                f"📧 Аккаунт: <code>{account_name}</code>\n"
+                f"📮 Фильтр отправителя: <code>{sender_email}</code>\n\n"
+                f"Теперь бот будет парсить только письма от этого адреса.\n"
+                f"Не забудьте включить аккаунт через /accounts"
+            )
+            await message.answer(success_msg, parse_mode="HTML")
+
+    @dp.callback_query(SenderEmailCallback.filter(F.action == "skip"))
+    async def sender_email_skip_handler(query: CallbackQuery, callback_data: SenderEmailCallback, user: TelegramUser) -> None:
+        """Обрабатывает кнопку Пропустить для sender_email"""
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
+
+        state_data = user_sender_email_states.get(query.from_user.id)
+        if not state_data:
+            await query.answer("❌ Состояние не найдено", show_alert=True)
+            return
+
+        account_id = state_data["account_id"]
+        account_name = state_data["account_name"]
+
+        from shared.models.gmail_account import GmailAccount
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(GmailAccount).where(GmailAccount.account_id == account_id)
+            result = await session.execute(stmt)
+            gmail_account = result.scalar_one_or_none()
+
+            if not gmail_account:
+                del user_sender_email_states[query.from_user.id]
+                await query.message.edit_text("❌ Аккаунт не найден в базе данных")
+                return
+
+            gmail_account.sender_email = ""
+            await session.commit()
+
+            del user_sender_email_states[query.from_user.id]
+
+            success_msg = (
+                f"✅ <b>Настройка завершена!</b>\n\n"
+                f"📧 Аккаунт: <code>{account_name}</code>\n"
+                f"📮 Фильтр отправителя: <b>Отключен</b>\n\n"
+                f"Бот будет получать <b>ВСЕ</b> письма из этого Gmail аккаунта.\n"
+                f"Не забудьте включить аккаунт через /accounts"
+            )
+            await query.message.edit_text(success_msg, parse_mode="HTML")
+            await query.answer()
+
     @dp.message(Command("users"))
     @admin_only
     async def users_handler(message: Message, user: TelegramUser) -> None:
