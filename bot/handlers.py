@@ -342,7 +342,8 @@ def setup_handlers(dp: Dispatcher):
                     parser = GmailParser(
                         account_id=account.account_id,
                         credentials_path=account.credentials_path,
-                        token_path=account.token_path
+                        token_path=account.token_path,
+                        sender_email=account.sender_email
                     )
                     parsers.append(parser)
 
