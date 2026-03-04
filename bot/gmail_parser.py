@@ -99,8 +99,15 @@ class GmailParser:
 
         try:
             print(f"📧 Проверка аккаунта: {self.account_id}")
-            # Фильтруем письма от job board с нужным заголовком (включая прочитанные)
-            query = f'from:{self.sender_email} subject:"Отклик на вакансию"'
+
+            # Формируем query в зависимости от наличия sender_email
+            if self.sender_email and self.sender_email.strip():
+                query = f'from:{self.sender_email} subject:"Отклик на вакансию"'
+                print(f"   Фильтр: письма от {self.sender_email}")
+            else:
+                query = 'subject:"Отклик на вакансию"'
+                print(f"   Фильтр: ВСЕ письма с темой 'Отклик на вакансию'")
+
             results = self.service.users().messages().list(
                 userId='me', q=query
             ).execute()
@@ -154,10 +161,11 @@ class GmailParser:
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '')
             from_email = next((h['value'] for h in headers if h['name'] == 'From'), '')
 
-            # Проверяем что письмо от нужного отправителя
-            if self.sender_email not in from_email:
-                print(f"Пропускаем письмо не от {self.sender_email}: {from_email}")
-                return {"success": False}
+            # Проверяем что письмо от нужного отправителя (если фильтр задан)
+            if self.sender_email and self.sender_email.strip():
+                if self.sender_email not in from_email:
+                    print(f"Пропускаем письмо не от {self.sender_email}: {from_email}")
+                    return {"success": False}
 
             # Проверяем что заголовок начинается с "Отклик на вакансию"
             if not subject.startswith('Отклик на вакансию'):

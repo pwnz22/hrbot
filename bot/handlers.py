@@ -20,6 +20,9 @@ user_resume_messages = {}
 # Словарь для хранения состояния ввода описания обработки
 user_description_states = {}  # {user_id: {"application_id": int, "action": "add"|"edit"}}
 
+# Словарь для хранения состояния ввода sender_email при добавлении аккаунта
+user_sender_email_states = {}  # {user_id: {"account_id": str, "account_name": str}}
+
 class VacancyCallback(CallbackData, prefix="vacancy"):
     vacancy_id: int
 
@@ -85,6 +88,9 @@ class DescriptionCallback(CallbackData, prefix="description"):
 
 class ExportCallback(CallbackData, prefix="export"):
     filter_type: str  # "all" или "unprocessed"
+
+class SenderEmailCallback(CallbackData, prefix="sender_email"):
+    action: str  # "skip"
 
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
@@ -2073,18 +2079,28 @@ def setup_handlers(dp: Dispatcher):
             del user_auth_states[message.from_user.id]
 
             if success:
-                # Успешно добавлен
-                final_text = (
-                    "✅ <b>Новый аккаунт успешно добавлен!</b>\n\n"
-                    f"📧 <b>Email:</b> <code>{account_data['name']}</code>\n"
-                    f"🆔 <b>ID:</b> <code>{account_data['id']}</code>\n"
-                    f"🏷️ <b>Статус:</b> ❌ Отключен\n\n"
-                    "💡 <b>Следующие шаги:</b>\n"
-                    "1. Используйте /accounts\n"
-                    "2. Выберите этот аккаунт\n"
-                    "3. Нажмите \"✅ Включить аккаунт\""
+                user_sender_email_states[message.from_user.id] = {
+                    "account_id": account_data["id"],
+                    "account_name": account_data["name"]
+                }
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="⏭️ Пропустить (получать все письма)",
+                        callback_data=SenderEmailCallback(action="skip").pack()
+                    )]
+                ])
+
+                sender_msg = (
+                    f"{msg}\n\n"
+                    f"📧 <b>Настройка фильтра писем</b>\n\n"
+                    f"Введите email отправителя для парсинга откликов.\n"
+                    f"Например: <code>noreply@somon.tj</code> или <code>noreply@newboard.com</code>\n\n"
+                    f"Или нажмите <b>Пропустить</b>, чтобы получать ВСЕ письма из этого Gmail аккаунта "
+                    f"(независимо от отправителя)."
                 )
-                await status_msg.edit_text(final_text, parse_mode="HTML")
+
+                await status_msg.edit_text(sender_msg, parse_mode="HTML", reply_markup=keyboard)
             else:
                 # Ошибка
                 await status_msg.edit_text(msg, parse_mode="HTML")
@@ -2317,6 +2333,11 @@ def setup_handlers(dp: Dispatcher):
     async def cancel_handler(message: Message) -> None:
         """Отменяет текущую операцию"""
         user_id = message.from_user.id
+
+        if user_id in user_sender_email_states:
+            del user_sender_email_states[user_id]
+            await message.answer("✅ Ввод sender_email отменен")
+            return
 
         if user_id in user_auth_states:
             del user_auth_states[user_id]
