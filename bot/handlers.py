@@ -1,4 +1,4 @@
-from aiogram import Dispatcher
+from aiogram import Dispatcher, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters.callback_data import CallbackData
@@ -19,6 +19,9 @@ user_resume_messages = {}
 
 # Словарь для хранения состояния ввода описания обработки
 user_description_states = {}  # {user_id: {"application_id": int, "action": "add"|"edit"}}
+
+# Словарь для хранения состояния ввода sender_email при добавлении аккаунта
+user_sender_email_states = {}  # {user_id: {"account_id": str, "account_name": str}}
 
 class VacancyCallback(CallbackData, prefix="vacancy"):
     vacancy_id: int
@@ -85,6 +88,9 @@ class DescriptionCallback(CallbackData, prefix="description"):
 
 class ExportCallback(CallbackData, prefix="export"):
     filter_type: str  # "all" или "unprocessed"
+
+class SenderEmailCallback(CallbackData, prefix="sender_email"):
+    action: str  # "skip"
 
 async def delete_message_after_delay(message, delay_seconds):
     """Удаляет сообщение через указанное количество секунд"""
@@ -342,7 +348,8 @@ def setup_handlers(dp: Dispatcher):
                     parser = GmailParser(
                         account_id=account.account_id,
                         credentials_path=account.credentials_path,
-                        token_path=account.token_path
+                        token_path=account.token_path,
+                        sender_email=account.sender_email
                     )
                     parsers.append(parser)
 
@@ -2072,18 +2079,28 @@ def setup_handlers(dp: Dispatcher):
             del user_auth_states[message.from_user.id]
 
             if success:
-                # Успешно добавлен
-                final_text = (
-                    "✅ <b>Новый аккаунт успешно добавлен!</b>\n\n"
-                    f"📧 <b>Email:</b> <code>{account_data['name']}</code>\n"
-                    f"🆔 <b>ID:</b> <code>{account_data['id']}</code>\n"
-                    f"🏷️ <b>Статус:</b> ❌ Отключен\n\n"
-                    "💡 <b>Следующие шаги:</b>\n"
-                    "1. Используйте /accounts\n"
-                    "2. Выберите этот аккаунт\n"
-                    "3. Нажмите \"✅ Включить аккаунт\""
+                user_sender_email_states[message.from_user.id] = {
+                    "account_id": account_data["id"],
+                    "account_name": account_data["name"]
+                }
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="⏭️ Пропустить (получать все письма)",
+                        callback_data=SenderEmailCallback(action="skip").pack()
+                    )]
+                ])
+
+                sender_msg = (
+                    f"{msg}\n\n"
+                    f"📧 <b>Настройка фильтра писем</b>\n\n"
+                    f"Введите email отправителя для парсинга откликов.\n"
+                    f"Например: <code>noreply@somon.tj</code> или <code>noreply@newboard.com</code>\n\n"
+                    f"Или нажмите <b>Пропустить</b>, чтобы получать ВСЕ письма из этого Gmail аккаунта "
+                    f"(независимо от отправителя)."
                 )
-                await status_msg.edit_text(final_text, parse_mode="HTML")
+
+                await status_msg.edit_text(sender_msg, parse_mode="HTML", reply_markup=keyboard)
             else:
                 # Ошибка
                 await status_msg.edit_text(msg, parse_mode="HTML")
@@ -2107,6 +2124,91 @@ def setup_handlers(dp: Dispatcher):
             # Удаляем сообщение с кодом
             import asyncio
             asyncio.create_task(delete_message_after_delay(message, 1))
+
+    @dp.message(lambda message: message.from_user.id in user_sender_email_states and message.text and not message.text.startswith('/'))
+    async def handle_sender_email_input(message: Message, user: TelegramUser) -> None:
+        """Обрабатывает ввод sender_email от пользователя"""
+        if not user.is_admin:
+            await message.answer("❌ Только для администраторов")
+            if message.from_user.id in user_sender_email_states:
+                del user_sender_email_states[message.from_user.id]
+            return
+
+        state_data = user_sender_email_states.get(message.from_user.id)
+        if not state_data:
+            return
+
+        sender_email = message.text.strip()
+        account_id = state_data["account_id"]
+        account_name = state_data["account_name"]
+
+        from shared.models.gmail_account import GmailAccount
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(GmailAccount).where(GmailAccount.account_id == account_id)
+            result = await session.execute(stmt)
+            gmail_account = result.scalar_one_or_none()
+
+            if not gmail_account:
+                del user_sender_email_states[message.from_user.id]
+                await message.answer("❌ Аккаунт не найден в базе данных")
+                return
+
+            gmail_account.sender_email = sender_email
+            await session.commit()
+
+            del user_sender_email_states[message.from_user.id]
+
+            success_msg = (
+                f"✅ <b>Настройка завершена!</b>\n\n"
+                f"📧 Аккаунт: <code>{account_name}</code>\n"
+                f"📮 Фильтр отправителя: <code>{sender_email}</code>\n\n"
+                f"Теперь бот будет парсить только письма от этого адреса.\n"
+                f"Не забудьте включить аккаунт через /accounts"
+            )
+            await message.answer(success_msg, parse_mode="HTML")
+
+    @dp.callback_query(SenderEmailCallback.filter(F.action == "skip"))
+    async def sender_email_skip_handler(query: CallbackQuery, callback_data: SenderEmailCallback, user: TelegramUser) -> None:
+        """Обрабатывает кнопку Пропустить для sender_email"""
+        if not user.is_admin:
+            await query.answer("❌ Только для администраторов", show_alert=True)
+            return
+
+        state_data = user_sender_email_states.get(query.from_user.id)
+        if not state_data:
+            await query.answer("❌ Состояние не найдено", show_alert=True)
+            return
+
+        account_id = state_data["account_id"]
+        account_name = state_data["account_name"]
+
+        from shared.models.gmail_account import GmailAccount
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(GmailAccount).where(GmailAccount.account_id == account_id)
+            result = await session.execute(stmt)
+            gmail_account = result.scalar_one_or_none()
+
+            if not gmail_account:
+                del user_sender_email_states[query.from_user.id]
+                await query.message.edit_text("❌ Аккаунт не найден в базе данных")
+                return
+
+            gmail_account.sender_email = ""
+            await session.commit()
+
+            del user_sender_email_states[query.from_user.id]
+
+            success_msg = (
+                f"✅ <b>Настройка завершена!</b>\n\n"
+                f"📧 Аккаунт: <code>{account_name}</code>\n"
+                f"📮 Фильтр отправителя: <b>Отключен</b>\n\n"
+                f"Бот будет получать <b>ВСЕ</b> письма из этого Gmail аккаунта.\n"
+                f"Не забудьте включить аккаунт через /accounts"
+            )
+            await query.message.edit_text(success_msg, parse_mode="HTML")
+            await query.answer()
 
     @dp.message(Command("users"))
     @admin_only
@@ -2316,6 +2418,11 @@ def setup_handlers(dp: Dispatcher):
     async def cancel_handler(message: Message) -> None:
         """Отменяет текущую операцию"""
         user_id = message.from_user.id
+
+        if user_id in user_sender_email_states:
+            del user_sender_email_states[user_id]
+            await message.answer("✅ Ввод sender_email отменен")
+            return
 
         if user_id in user_auth_states:
             del user_auth_states[user_id]

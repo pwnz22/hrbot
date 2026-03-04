@@ -13,6 +13,7 @@ class GmailAccount(Base):
     token_path = Column(String, nullable=False)
     enabled = Column(Boolean, default=True)
     user_id = Column(Integer, ForeignKey('telegram_users.id'), nullable=True)
+    sender_email = Column(String, nullable=True, default='noreply@somon.tj')
 
     # Relationship
     user = relationship("TelegramUser", back_populates="gmail_accounts")
