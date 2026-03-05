@@ -16,21 +16,22 @@ depends_on = None
 
 
 def upgrade():
-    op.alter_column('applications', 'gmail_message_id',
-               existing_type=sa.String(255),
-               nullable=True)
-
-    op.add_column('applications', sa.Column('application_source', sa.String(50), nullable=True, server_default='email'))
+    with op.batch_alter_table('applications', schema=None) as batch_op:
+        batch_op.alter_column('gmail_message_id',
+                   existing_type=sa.String(255),
+                   nullable=True)
+        batch_op.add_column(sa.Column('application_source', sa.String(50), nullable=True, server_default='email'))
 
     op.add_column('vacancies', sa.Column('is_active', sa.Boolean(), nullable=False, server_default='1'))
     op.add_column('vacancies', sa.Column('requirements', sa.Text(), nullable=True))
 
 
 def downgrade():
-    op.alter_column('applications', 'gmail_message_id',
-               existing_type=sa.String(255),
-               nullable=False)
+    with op.batch_alter_table('applications', schema=None) as batch_op:
+        batch_op.alter_column('gmail_message_id',
+                   existing_type=sa.String(255),
+                   nullable=False)
+        batch_op.drop_column('application_source')
 
-    op.drop_column('applications', 'application_source')
     op.drop_column('vacancies', 'is_active')
     op.drop_column('vacancies', 'requirements')
