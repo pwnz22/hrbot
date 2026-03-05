@@ -11,7 +11,7 @@ services:
       - .env
     volumes:
       # База данных
-      - ./devhrbot.db:/app/devhrbot.db
+      - ./hrbot.db:/app/hrbot.db
       # Скачанные файлы (резюме)
       - ./downloads:/app/downloads
       # Экспорты
