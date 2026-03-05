@@ -169,7 +169,7 @@ def setup_handlers(dp: Dispatcher):
                 keyboard=[
                     [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
                     [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
-                    [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="➕ Добавить аккаунт")],
+                    [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="💼 Вакансии")],
                     [KeyboardButton(text="📥 Экспорт"), KeyboardButton(text="👥 Пользователи")]
                 ],
                 resize_keyboard=True
@@ -186,7 +186,8 @@ def setup_handlers(dp: Dispatcher):
                 "/parse - Парсить новые письма\n"
                 "/export - Экспорт откликов в Excel\n"
                 "/accounts - Управление Gmail аккаунтами\n"
-                "/add_account - Добавить новый Gmail аккаунт\n"
+                "/vacancies - Управление вакансиями\n"
+                "/create_vacancy - Создать вакансию\n"
                 "/users - Управление пользователями"
             )
 
@@ -195,7 +196,7 @@ def setup_handlers(dp: Dispatcher):
                 keyboard=[
                     [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
                     [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
-                    [KeyboardButton(text="📥 Экспорт")]
+                    [KeyboardButton(text="💼 Вакансии"), KeyboardButton(text="📥 Экспорт")]
                 ],
                 resize_keyboard=True
             )
@@ -209,6 +210,8 @@ def setup_handlers(dp: Dispatcher):
                 "/recent - Последние отклики\n"
                 "/unprocessed - Все необработанные отклики\n"
                 "/parse - Парсить новые письма\n"
+                "/vacancies - Управление вакансиями\n"
+                "/create_vacancy - Создать вакансию\n"
                 "/export - Экспорт откликов в Excel"
             )
 
@@ -2539,3 +2542,6 @@ def setup_handlers(dp: Dispatcher):
     from bot.applicant_handlers import setup_applicant_handlers
     setup_applicant_handlers(dp)
 
+
+    from bot.vacancy_management_handlers import setup_vacancy_management_handlers
+    setup_vacancy_management_handlers(dp)
