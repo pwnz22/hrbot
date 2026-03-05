@@ -30,7 +30,17 @@ def setup_applicant_handlers(dp: Dispatcher):
             vacancies = result.scalars().all()
 
             if not vacancies:
-                await message.answer("К сожалению, сейчас нет активных вакансий.")
+                user_stmt = select(TelegramUser).where(TelegramUser.telegram_id == message.from_user.id)
+                user_result = await session.execute(user_stmt)
+                user = user_result.scalar_one_or_none()
+
+                keyboard = None
+                if user and (user.is_admin or user.is_moderator):
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="➕ Создать вакансию", callback_data="create_new_vacancy")]
+                    ])
+
+                await message.answer("К сожалению, сейчас нет активных вакансий.", reply_markup=keyboard)
                 return
 
             text = "📋 <b>Активные вакансии:</b>\n\n"
