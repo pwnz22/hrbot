@@ -1,4 +1,4 @@
-from aiogram import Dispatcher
+from aiogram import Dispatcher, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters.callback_data import CallbackData
