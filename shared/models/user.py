@@ -59,7 +59,7 @@ class TelegramUser(Base):
         - manage_users: управление пользователями
         """
         permissions_map = {
-            RoleEnum.USER: [],
+            RoleEnum.USER: ['view_vacancies', 'submit_application'],
             RoleEnum.MODERATOR: [
                 'view_applications',
                 'change_status',

@@ -122,8 +122,48 @@ def setup_handlers(dp: Dispatcher):
     @dp.message(CommandStart())
     async def command_start_handler(message: Message, user: TelegramUser) -> None:
         from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        from bot.applicant_handlers import user_application_states, VacancyApplyCallback
 
-        # Формируем клавиатуру и текст в зависимости от роли
+        args = message.text.split(maxsplit=1)
+
+        if len(args) > 1 and args[1].startswith("job_"):
+            try:
+                vacancy_id = int(args[1].replace("job_", ""))
+
+                async with AsyncSessionLocal() as session:
+                    from shared.models.vacancy import Vacancy
+                    vacancy = await session.get(Vacancy, vacancy_id)
+
+                    if vacancy and vacancy.is_active:
+                        user_application_states[user.telegram_id] = {
+                            "vacancy_id": vacancy.id,
+                            "vacancy_title": vacancy.title,
+                            "step": "name"
+                        }
+
+                        text = f"""
+📝 <b>Отклик на вакансию: {vacancy.title}</b>
+
+{vacancy.description if vacancy.description else ''}
+
+Пожалуйста, ответьте на несколько вопросов:
+
+<b>Шаг 1/4:</b> Как вас зовут? (ФИО)
+"""
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        from bot.applicant_handlers import ApplicationStepCallback
+
+                        cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="❌ Отменить", callback_data=ApplicationStepCallback(action="cancel").pack())]
+                        ])
+
+                        await message.answer(text, reply_markup=cancel_keyboard, parse_mode="HTML")
+                        return
+                    else:
+                        await message.answer("❌ Вакансия не найдена или неактивна.\n\nИспользуйте кнопку ниже для просмотра доступных вакансий.")
+            except (ValueError, IndexError):
+                pass
+
         if user.is_admin:
             keyboard = ReplyKeyboardMarkup(
                 keyboard=[
@@ -175,16 +215,18 @@ def setup_handlers(dp: Dispatcher):
         else:  # USER
             keyboard = ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="🏠 Главная")]
+                    [KeyboardButton(text="💼 Вакансии")]
                 ],
                 resize_keyboard=True
             )
 
             help_text = (
-                "Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
-                f"👤 Ваша роль: <b>Пользователь</b>\n\n"
-                "У вас нет прав для работы с ботом.\n"
-                "Обратитесь к администратору для получения доступа."
+                "Привет! Я бот для откликов на вакансии.\n\n"
+                f"👤 Ваша роль: <b>Соискатель</b>\n\n"
+                "Вы можете:\n"
+                "• Просмотреть доступные вакансии\n"
+                "• Отправить отклик на интересующую позицию\n\n"
+                "Нажмите кнопку <b>💼 Вакансии</b> чтобы начать!"
             )
 
         await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
@@ -2493,3 +2535,7 @@ def setup_handlers(dp: Dispatcher):
     @dp.message(lambda message: message.text == "👥 Пользователи")
     async def text_users_handler(message: Message, user: TelegramUser) -> None:
         await users_handler(message, user)
+
+    from bot.applicant_handlers import setup_applicant_handlers
+    setup_applicant_handlers(dp)
+
