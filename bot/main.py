@@ -27,8 +27,21 @@ async def main():
         logging.error("BOT_TOKEN не найден в переменных окружения")
         return
 
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        from alembic.config import Config
+        from alembic import command
+
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        print("✅ Database migrations applied")
+    except Exception as e:
+        print(f"⚠️ Migration error: {e}")
+        print("Falling back to create_all...")
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     bot = Bot(TOKEN)
     dp = Dispatcher()
