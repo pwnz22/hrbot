@@ -189,7 +189,7 @@ def setup_handlers(dp: Dispatcher):
                     [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
                     [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="⚙️ Управление вакансиями")],
                     [KeyboardButton(text="💼 Вакансии"), KeyboardButton(text="📥 Экспорт")],
-                    [KeyboardButton(text="👥 Пользователи")]
+                    [KeyboardButton(text="➕ Добавить аккаунт"), KeyboardButton(text="👥 Пользователи")]
                 ],
                 resize_keyboard=True
             )
