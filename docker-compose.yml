@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hrbot-telegram
+    container_name: dev-hrbot-telegram
     command: python -m bot.main
     restart: unless-stopped
     env_file:
