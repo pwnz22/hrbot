@@ -61,9 +61,9 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
             keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
             await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
-    @dp.message(F.text == "📋 Вакансии")
+    @dp.message(F.text == "⚙️ Управление вакансиями")
     @moderator_or_admin
-    async def text_vacancies_handler(message: Message, user: TelegramUser):
+    async def text_vacancies_management_handler(message: Message, user: TelegramUser):
         await list_vacancies_handler(message, user)
 
     @dp.callback_query(F.data == "create_new_vacancy")

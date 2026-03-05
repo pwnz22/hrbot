@@ -169,8 +169,9 @@ def setup_handlers(dp: Dispatcher):
                 keyboard=[
                     [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
                     [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
-                    [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="💼 Вакансии")],
-                    [KeyboardButton(text="📥 Экспорт"), KeyboardButton(text="👥 Пользователи")]
+                    [KeyboardButton(text="📧 Аккаунты"), KeyboardButton(text="⚙️ Управление вакансиями")],
+                    [KeyboardButton(text="💼 Вакансии"), KeyboardButton(text="📥 Экспорт")],
+                    [KeyboardButton(text="👥 Пользователи")]
                 ],
                 resize_keyboard=True
             )
@@ -188,7 +189,9 @@ def setup_handlers(dp: Dispatcher):
                 "/accounts - Управление Gmail аккаунтами\n"
                 "/vacancies - Управление вакансиями\n"
                 "/create_vacancy - Создать вакансию\n"
-                "/users - Управление пользователями"
+                "/users - Управление пользователями\n\n"
+                "💼 <b>Вакансии</b> - Просмотр и отклик на вакансии\n"
+                "⚙️ <b>Управление вакансиями</b> - Создание и редактирование"
             )
 
         elif user.is_moderator:
@@ -196,7 +199,8 @@ def setup_handlers(dp: Dispatcher):
                 keyboard=[
                     [KeyboardButton(text="📋 Последние"), KeyboardButton(text="⏳ Необработанные")],
                     [KeyboardButton(text="🔄 Парсинг"), KeyboardButton(text="📊 Статистика")],
-                    [KeyboardButton(text="💼 Вакансии"), KeyboardButton(text="📥 Экспорт")]
+                    [KeyboardButton(text="⚙️ Управление вакансиями"), KeyboardButton(text="📥 Экспорт")],
+                    [KeyboardButton(text="💼 Вакансии")]
                 ],
                 resize_keyboard=True
             )
@@ -212,7 +216,9 @@ def setup_handlers(dp: Dispatcher):
                 "/parse - Парсить новые письма\n"
                 "/vacancies - Управление вакансиями\n"
                 "/create_vacancy - Создать вакансию\n"
-                "/export - Экспорт откликов в Excel"
+                "/export - Экспорт откликов в Excel\n\n"
+                "💼 <b>Вакансии</b> - Просмотр и отклик на вакансии\n"
+                "⚙️ <b>Управление вакансиями</b> - Создание и редактирование"
             )
 
         else:  # USER
