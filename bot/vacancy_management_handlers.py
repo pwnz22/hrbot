@@ -234,8 +234,17 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
 
 Управление вакансией: /vacancies
 """
+                from urllib.parse import quote
+                description = state.get('description', '')
+                desc_text = f"\n\n📝 {description}" if description else ""
+                share_text = f"🔥 Вакансия: {state['title']}{desc_text}"
+                share_url = f"https://t.me/share/url?url={quote(deep_link)}&text={quote(share_text)}"
 
-                await message.answer(success_text, parse_mode="HTML")
+                share_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📤 Поделиться вакансией", url=share_url)]
+                ])
+
+                await message.answer(success_text, reply_markup=share_keyboard, parse_mode="HTML")
 
                 del user_vacancy_creation_states[user_id]
 
@@ -290,6 +299,11 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
 <code>{deep_link}</code>
 """
 
+                from urllib.parse import quote
+                desc_text = f"\n\n📝 {vacancy.description}" if vacancy.description else ""
+                share_text = f"🔥 Вакансия: {vacancy.title}{desc_text}"
+                share_url = f"https://t.me/share/url?url={quote(deep_link)}&text={quote(share_text)}"
+
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(
@@ -305,6 +319,9 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
                             text="📊 Посмотреть отклики",
                             callback_data=f"vacancy:{vacancy.id}"
                         )
+                    ],
+                    [
+                        InlineKeyboardButton(text="📤 Поделиться вакансией", url=share_url)
                     ],
                     [
                         InlineKeyboardButton(text="◀ Назад к списку", callback_data="back_to_vacancies_list")
