@@ -28,6 +28,7 @@ class Application(Base):
     attachment_filename = Column(String(255), nullable=True)
     gmail_message_id = Column(String(255), unique=True, nullable=True)
     application_source = Column(String(50), nullable=True, default='email')
+    telegram_user_id = Column(Integer, nullable=True)
     applicant_message = Column(Text, nullable=True)
     vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

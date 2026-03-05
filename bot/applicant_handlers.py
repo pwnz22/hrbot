@@ -73,6 +73,24 @@ def setup_applicant_handlers(dp: Dispatcher):
                 await query.message.answer("❌ Эта вакансия больше недоступна.")
                 return
 
+            existing_app_stmt = select(Application).where(
+                Application.vacancy_id == vacancy.id,
+                Application.telegram_user_id == user.telegram_id,
+                Application.application_source == "telegram",
+                Application.deleted_at.is_(None)
+            )
+            existing_app_result = await session.execute(existing_app_stmt)
+            existing_app = existing_app_result.scalar_one_or_none()
+
+            if existing_app:
+                await query.message.answer(
+                    f"⚠️ Вы уже откликались на вакансию <b>{vacancy.title}</b>\n\n"
+                    f"📅 Дата отклика: {existing_app.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                    "Мы рассмотрим ваш отклик и свяжемся с вами.",
+                    parse_mode="HTML"
+                )
+                return
+
             user_application_states[user.telegram_id] = {
                 "vacancy_id": vacancy.id,
                 "vacancy_title": vacancy.title,
@@ -259,6 +277,7 @@ def setup_applicant_handlers(dp: Dispatcher):
                     applicant_message=state.get("message"),
                     vacancy_id=state["vacancy_id"],
                     application_source="telegram",
+                    telegram_user_id=user_id,
                     gmail_message_id=None
                 )
 
