@@ -11,6 +11,7 @@ from aiogram.types import Message, BotCommand
 from dotenv import load_dotenv
 
 from bot.handlers import setup_handlers
+from bot.error_handlers import setup_error_handlers
 from bot.scheduler import GmailScheduler
 from shared.database.database import async_engine
 from shared.models.vacancy import Base
@@ -46,13 +47,11 @@ async def main():
     bot = Bot(TOKEN)
     dp = Dispatcher()
 
-    # Регистрируем middleware для проверки ролей
     from bot.middleware import RoleCheckMiddleware
     dp.message.middleware(RoleCheckMiddleware())
     dp.callback_query.middleware(RoleCheckMiddleware())
 
-    # Команды будут устанавливаться динамически в зависимости от роли пользователя
-    # в обработчике /start
+    setup_error_handlers(dp)
 
     setup_handlers(dp)
 
