@@ -171,6 +171,14 @@ def setup_applicant_handlers(dp: Dispatcher):
             ])
             await message.answer(text, reply_markup=cancel_keyboard, parse_mode="HTML")
 
+        elif step == "resume":
+            if message.text.lower() == "skip":
+                state["file_path"] = None
+                state["attachment_filename"] = None
+                await save_application(message, state, user_id)
+            else:
+                await message.answer("⚠️ Пожалуйста, прикрепите файл резюме или нажмите кнопку 'Пропустить'")
+
     @dp.message(lambda message: message.from_user.id in user_application_states and message.document)
     async def handle_resume_upload(message: Message):
         user_id = message.from_user.id
@@ -202,7 +210,7 @@ def setup_applicant_handlers(dp: Dispatcher):
         state["file_path"] = file_path
         state["attachment_filename"] = document.file_name
 
-        await save_application(message, state)
+        await save_application(message, state, user_id)
 
     @dp.callback_query(ApplicationStepCallback.filter())
     async def handle_application_action(query: CallbackQuery, callback_data: ApplicationStepCallback):
@@ -235,11 +243,10 @@ def setup_applicant_handlers(dp: Dispatcher):
         elif callback_data.action == "skip_resume":
             state["file_path"] = None
             state["attachment_filename"] = None
-            await save_application(query.message, state)
+            await save_application(query.message, state, user_id)
             await query.answer()
 
-    async def save_application(message: Message, state: dict):
-        user_id = message.from_user.id
+    async def save_application(message: Message, state: dict, user_id: int):
 
         try:
             async with AsyncSessionLocal() as session:
