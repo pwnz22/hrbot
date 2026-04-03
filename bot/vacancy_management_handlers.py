@@ -80,9 +80,7 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
 
 <b>Шаг 1/3:</b> Введите название вакансии
 
-Например: Python Developer, QA Engineer, Frontend Developer
-
-[❌ Отменить]
+Например: Маркетолог, Оператор, Разработчик  
 """
         cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отменить", callback_data=VacancyCreateStepCallback(action="cancel").pack())]
@@ -127,9 +125,7 @@ def setup_vacancy_management_handlers(dp: Dispatcher):
             text = """
 <b>Шаг 2/3:</b> Введите описание вакансии
 
-Опишите требования, обязанности, условия работы.
-
-Или отправьте: <code>skip</code> чтобы пропустить
+Опишите обязанности и условия работы.
 """
             cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⏭️ Пропустить", callback_data=VacancyCreateStepCallback(action="skip_description").pack())],
