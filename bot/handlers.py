@@ -52,6 +52,13 @@ class ResumeCallback(CallbackData, prefix="resume"):
     application_id: int
     action: str  # "download"
 
+class VacancyDeleteCallback(CallbackData, prefix="vac_del"):
+    vacancy_id: int
+    action: str  # "confirm" или "cancel"
+
+class VacancyMarkAllProcessedCallback(CallbackData, prefix="vac_mark"):
+    vacancy_id: int
+
 class AccountCallback(CallbackData, prefix="account"):
     account_id: str
 
@@ -273,14 +280,15 @@ def setup_handlers(dp: Dispatcher):
             # Получаем список вакансий с фильтрацией по пользователю
             if user.is_admin:
                 # Админ видит все вакансии (включая те, где gmail_account_id = NULL)
-                stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
+                stmt = select(Vacancy).where(Vacancy.deleted_at.is_(None)).order_by(desc(Vacancy.created_at))
             else:
                 # Модератор видит только вакансии привязанных к нему аккаунтов
                 from shared.models.gmail_account import GmailAccount
                 stmt = select(Vacancy).join(
                     GmailAccount, Vacancy.gmail_account_id == GmailAccount.id, isouter=False
                 ).where(
-                    GmailAccount.user_id == user.id
+                    GmailAccount.user_id == user.id,
+                    Vacancy.deleted_at.is_(None)
                 ).order_by(desc(Vacancy.created_at))
 
             result = await session.execute(stmt)
@@ -470,7 +478,18 @@ def setup_handlers(dp: Dispatcher):
             applications = apps_result.scalars().all()
 
             if not applications:
-                await query.message.edit_text(f"📋 Вакансия: {vacancy.title}\n\nОткликов пока нет")
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                delete_button = InlineKeyboardButton(
+                    text="🗑 Удалить вакансию",
+                    callback_data=VacancyDeleteCallback(vacancy_id=vacancy.id, action="confirm").pack()
+                )
+                keyboard.inline_keyboard.append([delete_button])
+                back_button = InlineKeyboardButton(
+                    text="⬅️ Назад к вакансиям",
+                    callback_data=BackCallback(to="vacancies").pack()
+                )
+                keyboard.inline_keyboard.append([back_button])
+                await query.message.edit_text(f"📋 Вакансия: {vacancy.title}\n\nОткликов пока нет", reply_markup=keyboard)
                 return
 
             # Создаем клавиатуру с откликами
@@ -493,6 +512,22 @@ def setup_handlers(dp: Dispatcher):
                     callback_data=ApplicationCallback(application_id=app.id, source="vacancy").pack()
                 )
                 keyboard.inline_keyboard.append([button])
+
+            # Кнопка "Отметить все как обработанные"
+            unprocessed_count = sum(1 for app in applications if not app.is_processed)
+            if unprocessed_count > 0:
+                mark_all_button = InlineKeyboardButton(
+                    text=f"✅ Отметить все как обработанные ({unprocessed_count})",
+                    callback_data=VacancyMarkAllProcessedCallback(vacancy_id=vacancy.id).pack()
+                )
+                keyboard.inline_keyboard.append([mark_all_button])
+
+            # Кнопка "Удалить вакансию"
+            delete_button = InlineKeyboardButton(
+                text="🗑 Удалить вакансию",
+                callback_data=VacancyDeleteCallback(vacancy_id=vacancy.id, action="confirm").pack()
+            )
+            keyboard.inline_keyboard.append([delete_button])
 
             # Добавляем кнопку "Назад к вакансиям"
             back_button = InlineKeyboardButton(
@@ -1063,6 +1098,89 @@ def setup_handlers(dp: Dispatcher):
             application_callback = ApplicationCallback(application_id=callback_data.application_id, source=callback_data.source)
             await application_details_handler(query, application_callback, user)
 
+    @dp.callback_query(VacancyDeleteCallback.filter())
+    async def vacancy_delete_handler(query: CallbackQuery, callback_data: VacancyDeleteCallback, user: TelegramUser) -> None:
+        await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
+
+        if callback_data.action == "confirm":
+            # Показываем подтверждение удаления
+            async with AsyncSessionLocal() as session:
+                vacancy_stmt = select(Vacancy).where(Vacancy.id == callback_data.vacancy_id)
+                vacancy_result = await session.execute(vacancy_stmt)
+                vacancy = vacancy_result.scalar_one_or_none()
+
+                if not vacancy:
+                    await query.message.edit_text("Вакансия не найдена")
+                    return
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="✅ Да, удалить",
+                        callback_data=VacancyDeleteCallback(vacancy_id=vacancy.id, action="delete").pack()
+                    )],
+                    [InlineKeyboardButton(
+                        text="❌ Отмена",
+                        callback_data=VacancyDeleteCallback(vacancy_id=vacancy.id, action="cancel").pack()
+                    )]
+                ])
+
+                await query.message.edit_text(
+                    f"⚠️ Вы уверены, что хотите удалить вакансию <b>{vacancy.title}</b>?\n\n"
+                    f"Вакансия будет скрыта из списка, но данные сохранятся в базе.",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+
+        elif callback_data.action == "delete":
+            # Выполняем soft delete
+            from datetime import datetime
+            async with AsyncSessionLocal() as session:
+                vacancy_stmt = select(Vacancy).where(Vacancy.id == callback_data.vacancy_id)
+                vacancy_result = await session.execute(vacancy_stmt)
+                vacancy = vacancy_result.scalar_one_or_none()
+
+                if not vacancy:
+                    await query.message.edit_text("Вакансия не найдена")
+                    return
+
+                vacancy.deleted_at = datetime.now()
+                await session.commit()
+
+                await query.message.edit_text(f"✅ Вакансия <b>{vacancy.title}</b> удалена", parse_mode="HTML")
+
+        elif callback_data.action == "cancel":
+            # Возвращаемся к просмотру вакансии
+            vacancy_callback = VacancyCallback(vacancy_id=callback_data.vacancy_id)
+            await vacancy_applications_handler(query, vacancy_callback, user)
+
+    @dp.callback_query(VacancyMarkAllProcessedCallback.filter())
+    async def vacancy_mark_all_processed_handler(query: CallbackQuery, callback_data: VacancyMarkAllProcessedCallback, user: TelegramUser) -> None:
+        await query.answer()
+
+        if not user.has_permission('view_applications'):
+            await query.answer("❌ У вас нет прав", show_alert=True)
+            return
+
+        from sqlalchemy import update
+        async with AsyncSessionLocal() as session:
+            stmt = update(Application).where(
+                Application.vacancy_id == callback_data.vacancy_id,
+                Application.deleted_at.is_(None),
+                Application.is_processed == False
+            ).values(is_processed=True)
+            result = await session.execute(stmt)
+            await session.commit()
+
+            await query.answer(f"✅ Отмечено как обработанные: {result.rowcount}", show_alert=True)
+
+            # Возвращаемся к просмотру вакансии
+            vacancy_callback = VacancyCallback(vacancy_id=callback_data.vacancy_id)
+            await vacancy_applications_handler(query, vacancy_callback, user)
+
     @dp.callback_query(BackCallback.filter())
     async def back_handler(query: CallbackQuery, callback_data: BackCallback, user: TelegramUser) -> None:
         await query.answer()
@@ -1083,7 +1201,7 @@ def setup_handlers(dp: Dispatcher):
         if callback_data.to == "vacancies":
             # Возвращаемся к списку вакансий
             async with AsyncSessionLocal() as session:
-                stmt = select(Vacancy).order_by(desc(Vacancy.created_at))
+                stmt = select(Vacancy).where(Vacancy.deleted_at.is_(None)).order_by(desc(Vacancy.created_at))
                 result = await session.execute(stmt)
                 vacancies = result.scalars().all()
 

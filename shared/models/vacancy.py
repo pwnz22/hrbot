@@ -11,6 +11,7 @@ class Vacancy(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     gmail_account_id = Column(Integer, ForeignKey("gmail_accounts.id"), nullable=True)  # Привязка к Gmail аккаунту (integer PK)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     applications = relationship("Application", back_populates="vacancy")
     gmail_account = relationship("GmailAccount", back_populates="vacancies")
