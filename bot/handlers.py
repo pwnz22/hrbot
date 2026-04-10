@@ -13,7 +13,11 @@ from shared.models.vacancy import Application, Vacancy
 from shared.models.user import TelegramUser, RoleEnum
 from shared.services.resume_summary_service import ResumeSummaryService
 from bot.middleware import moderator_or_admin, admin_only
-from bot.apply_handlers import setup_apply_handlers, show_vacancy_and_offer_apply
+from bot.apply_handlers import (
+    setup_apply_handlers,
+    show_vacancy_and_offer_apply,
+    show_open_vacancies_list,
+)
 
 # Словарь для хранения ID сообщений с файлами резюме для каждого пользователя
 user_resume_messages = {}
@@ -188,20 +192,14 @@ def setup_handlers(dp: Dispatcher):
                 "/export - Экспорт откликов в Excel"
             )
 
-        else:  # USER
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="🏠 Главная")]
-                ],
-                resize_keyboard=True
+        else:  # USER — кандидат: показываем список вакансий для отклика
+            from aiogram.types import ReplyKeyboardRemove
+            await message.answer(
+                "Привет! Здесь можно откликнуться на наши вакансии.",
+                reply_markup=ReplyKeyboardRemove(),
             )
-
-            help_text = (
-                "Привет! Я HR-бот для обработки откликов на вакансии из Gmail.\n\n"
-                f"👤 Ваша роль: <b>Пользователь</b>\n\n"
-                "У вас нет прав для работы с ботом.\n"
-                "Обратитесь к администратору для получения доступа."
-            )
+            await show_open_vacancies_list(message)
+            return
 
         await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -417,10 +415,11 @@ def setup_handlers(dp: Dispatcher):
             from sqlalchemy.orm import selectinload
 
             if user.is_admin:
-                # Админ видит все необработанные отклики
+                # Админ видит все необработанные отклики (исключая отклики удалённых вакансий)
                 stmt = select(Application).options(selectinload(Application.vacancy)).where(
                     Application.is_processed == False,
-                    Application.deleted_at.is_(None)
+                    Application.deleted_at.is_(None),
+                    ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
                 ).order_by(desc(Application.created_at))
             else:
                 # Модератор видит только отклики из привязанных к нему аккаунтов
@@ -434,6 +433,7 @@ def setup_handlers(dp: Dispatcher):
                 ).where(
                     Application.is_processed == False,
                     Application.deleted_at.is_(None),
+                    Vacancy.deleted_at.is_(None),
                     GmailAccount.user_id == user.id
                 ).order_by(desc(Application.created_at))
 
@@ -1068,7 +1068,11 @@ def setup_handlers(dp: Dispatcher):
                     # Возвращаемся к списку необработанных откликов
                     async with AsyncSessionLocal() as session:
                         from sqlalchemy.orm import selectinload
-                        stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
+                        stmt = select(Application).options(selectinload(Application.vacancy)).where(
+                            Application.is_processed == False,
+                            Application.deleted_at.is_(None),
+                            ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
+                        ).order_by(desc(Application.created_at))
                         result = await session.execute(stmt)
                         unprocessed_applications = result.scalars().all()
 
@@ -1294,7 +1298,11 @@ def setup_handlers(dp: Dispatcher):
             # Возвращаемся к списку необработанных откликов
             async with AsyncSessionLocal() as session:
                 from sqlalchemy.orm import selectinload
-                stmt = select(Application).options(selectinload(Application.vacancy)).where(Application.is_processed == False, Application.deleted_at.is_(None)).order_by(desc(Application.created_at))
+                stmt = select(Application).options(selectinload(Application.vacancy)).where(
+                    Application.is_processed == False,
+                    Application.deleted_at.is_(None),
+                    ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
+                ).order_by(desc(Application.created_at))
                 result = await session.execute(stmt)
                 unprocessed_applications = result.scalars().all()
 

@@ -92,6 +92,39 @@ async def _get_open_vacancy(vacancy_id: int) -> Vacancy | None:
         return result.scalar_one_or_none()
 
 
+async def show_open_vacancies_list(message: Message) -> None:
+    """Показывает обычному пользователю список открытых вакансий (inline-кнопки)."""
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Vacancy)
+            .where(Vacancy.deleted_at.is_(None))
+            .order_by(Vacancy.created_at.desc())
+        )
+        result = await session.execute(stmt)
+        vacancies = result.scalars().all()
+
+    if not vacancies:
+        await message.answer(
+            "Сейчас нет открытых вакансий. Загляните позже.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    rows = [
+        [InlineKeyboardButton(
+            text=f"📢 {v.title}",
+            callback_data=ApplyCallback(action="view", vacancy_id=v.id).pack(),
+        )]
+        for v in vacancies
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await message.answer(
+        "<b>Открытые вакансии</b>\n\nВыберите вакансию, чтобы откликнуться:",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+
+
 async def show_vacancy_and_offer_apply(message: Message, vacancy_id: int) -> None:
     """Показывает карточку вакансии и кнопку 'Откликнуться'."""
     vacancy = await _get_open_vacancy(vacancy_id)
@@ -117,6 +150,14 @@ async def show_vacancy_and_offer_apply(message: Message, vacancy_id: int) -> Non
 
 def setup_apply_handlers(dp: Dispatcher) -> None:
     """Регистрирует FSM-хендлеры приёма отклика."""
+
+    @dp.callback_query(ApplyCallback.filter(F.action == "view"))
+    async def apply_view(
+        callback: CallbackQuery,
+        callback_data: ApplyCallback,
+    ):
+        await show_vacancy_and_offer_apply(callback.message, callback_data.vacancy_id)
+        await callback.answer()
 
     @dp.callback_query(ApplyCallback.filter(F.action == "start"))
     async def apply_start(
