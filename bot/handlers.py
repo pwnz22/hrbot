@@ -123,6 +123,34 @@ def clean_html_tags(text):
     text = text.strip()
     return text
 
+def _build_unprocessed_stmt(user: TelegramUser):
+    """Единый запрос для списка необработанных откликов.
+
+    Согласован со stats_handler, чтобы счётчики совпадали:
+    inner join на Vacancy + активный GmailAccount, фильтр только по
+    Application.deleted_at и is_processed. Модератор дополнительно
+    ограничен своими привязанными аккаунтами.
+    """
+    from sqlalchemy.orm import selectinload
+    from shared.models.gmail_account import GmailAccount
+
+    stmt = (
+        select(Application)
+        .options(selectinload(Application.vacancy).selectinload(Vacancy.gmail_account))
+        .join(Vacancy, Application.vacancy_id == Vacancy.id)
+        .join(GmailAccount, Vacancy.gmail_account_id == GmailAccount.id)
+        .where(
+            Application.is_processed == False,
+            Application.deleted_at.is_(None),
+            GmailAccount.enabled == True,
+        )
+        .order_by(desc(Application.created_at))
+    )
+    if not user.is_admin:
+        stmt = stmt.where(GmailAccount.user_id == user.id)
+    return stmt
+
+
 def setup_handlers(dp: Dispatcher):
 
     # Apply-FSM регистрируем первым, чтобы его state-хендлеры имели приоритет
@@ -411,32 +439,7 @@ def setup_handlers(dp: Dispatcher):
     @moderator_or_admin
     async def unprocessed_handler(message: Message, user: TelegramUser) -> None:
         async with AsyncSessionLocal() as session:
-            # Получаем все необработанные отклики с фильтрацией по пользователю
-            from sqlalchemy.orm import selectinload
-
-            if user.is_admin:
-                # Админ видит все необработанные отклики (исключая отклики удалённых вакансий)
-                stmt = select(Application).options(selectinload(Application.vacancy)).where(
-                    Application.is_processed == False,
-                    Application.deleted_at.is_(None),
-                    ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
-                ).order_by(desc(Application.created_at))
-            else:
-                # Модератор видит только отклики из привязанных к нему аккаунтов
-                from shared.models.gmail_account import GmailAccount
-                stmt = select(Application).options(
-                    selectinload(Application.vacancy).selectinload(Vacancy.gmail_account)
-                ).join(
-                    Vacancy, Application.vacancy_id == Vacancy.id, isouter=False
-                ).join(
-                    GmailAccount, Vacancy.gmail_account_id == GmailAccount.id, isouter=False
-                ).where(
-                    Application.is_processed == False,
-                    Application.deleted_at.is_(None),
-                    Vacancy.deleted_at.is_(None),
-                    GmailAccount.user_id == user.id
-                ).order_by(desc(Application.created_at))
-
+            stmt = _build_unprocessed_stmt(user)
             result = await session.execute(stmt)
             unprocessed_applications = result.scalars().all()
 
@@ -1067,12 +1070,7 @@ def setup_handlers(dp: Dispatcher):
                 if callback_data.source == "unprocessed":
                     # Возвращаемся к списку необработанных откликов
                     async with AsyncSessionLocal() as session:
-                        from sqlalchemy.orm import selectinload
-                        stmt = select(Application).options(selectinload(Application.vacancy)).where(
-                            Application.is_processed == False,
-                            Application.deleted_at.is_(None),
-                            ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
-                        ).order_by(desc(Application.created_at))
+                        stmt = _build_unprocessed_stmt(user)
                         result = await session.execute(stmt)
                         unprocessed_applications = result.scalars().all()
 
@@ -1297,12 +1295,7 @@ def setup_handlers(dp: Dispatcher):
         elif callback_data.to == "unprocessed":
             # Возвращаемся к списку необработанных откликов
             async with AsyncSessionLocal() as session:
-                from sqlalchemy.orm import selectinload
-                stmt = select(Application).options(selectinload(Application.vacancy)).where(
-                    Application.is_processed == False,
-                    Application.deleted_at.is_(None),
-                    ~Application.vacancy.has(Vacancy.deleted_at.isnot(None))
-                ).order_by(desc(Application.created_at))
+                stmt = _build_unprocessed_stmt(user)
                 result = await session.execute(stmt)
                 unprocessed_applications = result.scalars().all()
 
