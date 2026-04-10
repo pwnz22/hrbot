@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from shared.database.database import Base
@@ -25,7 +25,7 @@ class Application(Base):
     phone = Column(String(50), nullable=True)
     file_path = Column(String(500), nullable=True)
     attachment_filename = Column(String(255), nullable=True)
-    gmail_message_id = Column(String(255), unique=True, nullable=False)
+    gmail_message_id = Column(String(255), unique=True, nullable=True)
     applicant_message = Column(Text, nullable=True)
     vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -33,5 +33,7 @@ class Application(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     summary = Column(Text, nullable=True)
     processing_description = Column(Text, nullable=True)
+    source = Column(String(20), nullable=False, default="gmail", server_default="gmail")
+    telegram_user_id = Column(BigInteger, nullable=True)
 
     vacancy = relationship("Vacancy", back_populates="applications")

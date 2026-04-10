@@ -13,6 +13,7 @@ from shared.models.vacancy import Application, Vacancy
 from shared.models.user import TelegramUser, RoleEnum
 from shared.services.resume_summary_service import ResumeSummaryService
 from bot.middleware import moderator_or_admin, admin_only
+from bot.apply_handlers import setup_apply_handlers, show_vacancy_and_offer_apply
 
 # Словарь для хранения ID сообщений с файлами резюме для каждого пользователя
 user_resume_messages = {}
@@ -120,9 +121,23 @@ def clean_html_tags(text):
 
 def setup_handlers(dp: Dispatcher):
 
+    # Apply-FSM регистрируем первым, чтобы его state-хендлеры имели приоритет
+    setup_apply_handlers(dp)
+
     @dp.message(CommandStart())
     async def command_start_handler(message: Message, user: TelegramUser) -> None:
         from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+        # Deep-link /start apply_<vacancy_id> — сценарий отклика кандидата
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) == 2 and parts[1].startswith("apply_"):
+            try:
+                vacancy_id = int(parts[1][len("apply_"):])
+            except ValueError:
+                vacancy_id = None
+            if vacancy_id:
+                await show_vacancy_and_offer_apply(message, vacancy_id)
+                return
 
         # Формируем клавиатуру и текст в зависимости от роли
         if user.is_admin:
