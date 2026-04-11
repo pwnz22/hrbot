@@ -1153,8 +1153,9 @@ def setup_handlers(dp: Dispatcher):
                 )
 
         elif callback_data.action == "delete":
-            # Выполняем soft delete
+            # Выполняем soft delete: помечаем вакансию и все её ещё не удалённые отклики
             from datetime import datetime
+            from sqlalchemy import update
             async with AsyncSessionLocal() as session:
                 vacancy_stmt = select(Vacancy).where(Vacancy.id == callback_data.vacancy_id)
                 vacancy_result = await session.execute(vacancy_stmt)
@@ -1164,10 +1165,20 @@ def setup_handlers(dp: Dispatcher):
                     await query.message.edit_text("Вакансия не найдена")
                     return
 
-                vacancy.deleted_at = datetime.now()
+                now = datetime.now()
+                vacancy.deleted_at = now
+                apps_update = update(Application).where(
+                    Application.vacancy_id == vacancy.id,
+                    Application.deleted_at.is_(None),
+                ).values(deleted_at=now)
+                apps_result = await session.execute(apps_update)
                 await session.commit()
 
-                await query.message.edit_text(f"✅ Вакансия <b>{vacancy.title}</b> удалена", parse_mode="HTML")
+                await query.message.edit_text(
+                    f"✅ Вакансия <b>{vacancy.title}</b> удалена\n"
+                    f"🗑 Откликов помечено удалёнными: {apps_result.rowcount}",
+                    parse_mode="HTML",
+                )
 
         elif callback_data.action == "cancel":
             # Возвращаемся к просмотру вакансии
