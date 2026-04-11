@@ -123,6 +123,47 @@ def clean_html_tags(text):
     text = text.strip()
     return text
 
+async def _apply_bot_commands_scope(bot, user: TelegramUser, chat_id: int) -> None:
+    """Выставляет список слеш-команд в левом меню Telegram для конкретного чата.
+
+    Кандидаты (USER) не видят ни одной команды — меню пустое.
+    Модераторы и админы видят свой набор.
+    """
+    from aiogram.types import BotCommand, BotCommandScopeChat
+
+    if user.is_admin:
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="stats", description="Статистика"),
+            BotCommand(command="recent", description="Последние отклики"),
+            BotCommand(command="unprocessed", description="Необработанные отклики"),
+            BotCommand(command="parse", description="Парсить новые письма"),
+            BotCommand(command="export", description="Экспорт в Excel"),
+            BotCommand(command="accounts", description="Gmail аккаунты"),
+            BotCommand(command="add_account", description="Добавить Gmail аккаунт"),
+            BotCommand(command="users", description="Управление пользователями"),
+        ]
+    elif user.is_moderator:
+        commands = [
+            BotCommand(command="start", description="Главное меню"),
+            BotCommand(command="stats", description="Статистика"),
+            BotCommand(command="recent", description="Последние отклики"),
+            BotCommand(command="unprocessed", description="Необработанные отклики"),
+            BotCommand(command="parse", description="Парсить новые письма"),
+            BotCommand(command="export", description="Экспорт в Excel"),
+        ]
+    else:
+        commands = []
+
+    try:
+        await bot.set_my_commands(
+            commands=commands,
+            scope=BotCommandScopeChat(chat_id=chat_id),
+        )
+    except Exception:
+        pass
+
+
 def _build_unprocessed_stmt(user: TelegramUser):
     """Единый запрос для списка необработанных откликов.
 
@@ -158,7 +199,15 @@ def setup_handlers(dp: Dispatcher):
 
     @dp.message(CommandStart())
     async def command_start_handler(message: Message, user: TelegramUser) -> None:
-        from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+        from aiogram.types import (
+            ReplyKeyboardMarkup,
+            KeyboardButton,
+            BotCommand,
+            BotCommandScopeChat,
+        )
+
+        # Применяем список команд в левом меню Telegram согласно роли
+        await _apply_bot_commands_scope(message.bot, user, message.chat.id)
 
         # Deep-link /start apply_<vacancy_id> — сценарий отклика кандидата
         parts = (message.text or "").split(maxsplit=1)

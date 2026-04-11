@@ -102,10 +102,14 @@ def admin_only(handler):
     """
     async def wrapper(event: Message | CallbackQuery, user: TelegramUser = None, **kwargs):
         if not user or not user.is_admin:
-            if isinstance(event, Message):
-                await event.answer("❌ Эта команда доступна только администраторам")
+            # Кандидат — молча игнорируем; модератору показываем ошибку
+            if user and user.is_moderator:
+                if isinstance(event, Message):
+                    await event.answer("❌ Эта команда доступна только администраторам")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("❌ Это действие доступно только администраторам", show_alert=True)
             elif isinstance(event, CallbackQuery):
-                await event.answer("❌ Это действие доступно только администраторам", show_alert=True)
+                await event.answer()
             return
 
         # Передаем только нужные параметры
@@ -127,10 +131,9 @@ def moderator_or_admin(handler):
     """
     async def wrapper(event: Message | CallbackQuery, user: TelegramUser = None, **kwargs):
         if not user or (not user.is_moderator and not user.is_admin):
-            if isinstance(event, Message):
-                await event.answer("❌ Эта команда доступна только модераторам и администраторам")
-            elif isinstance(event, CallbackQuery):
-                await event.answer("❌ Это действие доступно только модераторам и администраторам", show_alert=True)
+            # Кандидат (USER) — не показываем ошибку, просто игнорируем
+            if isinstance(event, CallbackQuery):
+                await event.answer()
             return
 
         # Передаем только нужные параметры
