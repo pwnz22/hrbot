@@ -19,9 +19,6 @@ docker-compose stop bot
 # Выполнить миграцию
 docker-compose exec bot python migrate_db.py
 
-# Или если контейнер остановлен
-docker-compose run --rm bot python migrate_db.py
-
 # Запустить контейнер
 docker-compose start bot
 ```
