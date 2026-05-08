@@ -20,10 +20,11 @@ from shared.services.resume_summary_service import ResumeSummaryService
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 class GmailParser:
-    def __init__(self, account_id="main", credentials_path="gmail_tokens/credentials.json", token_path="gmail_tokens/token_main.json"):
+    def __init__(self, account_id="main", credentials_path="gmail_tokens/credentials.json", token_path="gmail_tokens/token_main.json", sender_email="noreply@somon.tj"):
         self.account_id = account_id
         self.credentials_path = credentials_path
         self.token_path = token_path
+        self.sender_email = sender_email
         self.service = None
         self.resume_summary_service = ResumeSummaryService()
         self.authenticate()
@@ -98,8 +99,15 @@ class GmailParser:
 
         try:
             print(f"📧 Проверка аккаунта: {self.account_id}")
-            # Фильтруем письма от SomonTj с нужным заголовком (включая прочитанные)
-            query = 'from:noreply@somon.tj subject:"Отклик на вакансию"'
+
+            # Формируем query в зависимости от наличия sender_email
+            if self.sender_email and self.sender_email.strip():
+                query = f'from:{self.sender_email} subject:"Отклик на вакансию"'
+                print(f"   Фильтр: письма от {self.sender_email}")
+            else:
+                query = 'subject:"Отклик на вакансию"'
+                print(f"   Фильтр: ВСЕ письма с темой 'Отклик на вакансию'")
+
             results = self.service.users().messages().list(
                 userId='me', q=query
             ).execute()
@@ -153,17 +161,18 @@ class GmailParser:
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '')
             from_email = next((h['value'] for h in headers if h['name'] == 'From'), '')
 
-            # Проверяем что письмо от SomonTj
-            if 'noreply@somon.tj' not in from_email:
-                print(f"Пропускаем письмо не от SomonTj: {from_email}")
-                return {"success": False}
+            # Проверяем что письмо от нужного отправителя (если фильтр задан)
+            if self.sender_email and self.sender_email.strip():
+                if self.sender_email not in from_email:
+                    print(f"Пропускаем письмо не от {self.sender_email}: {from_email}")
+                    return {"success": False}
 
             # Проверяем что заголовок начинается с "Отклик на вакансию"
             if not subject.startswith('Отклик на вакансию'):
                 print(f"Пропускаем письмо без нужной темы: {subject}")
                 return {"success": False}
 
-            print(f"Обрабатываем письмо от SomonTj: {subject}")
+            print(f"Обрабатываем письмо от {self.sender_email}: {subject}")
 
             body = self.extract_body(message['payload'])
 
@@ -520,7 +529,7 @@ class GmailParser:
             if not vacancy:
                 vacancy = Vacancy(
                     title=title,
-                    description=f"Вакансия с сайта SomonTj: {title}",
+                    description=f"Вакансия: {title}",
                     gmail_account_id=gmail_account_id
                 )
                 session.add(vacancy)

@@ -39,7 +39,8 @@ class GmailScheduler:
                     parser = GmailParser(
                         account_id=account['id'],
                         credentials_path=account['credentials_path'],
-                        token_path=account['token_path']
+                        token_path=account['token_path'],
+                        sender_email=account.get('sender_email', 'noreply@somon.tj')
                     )
                     self.parsers.append(parser)
                     logger.info(f"📧 Добавлен аккаунт: {account.get('name', account['id'])}")
